@@ -1,0 +1,176 @@
+# 設定與上線指南
+
+本指南從本機模擬到少量真人測試，再到正式啟用。儲存庫中的部署檔不代表已建立雲端資源；目前沒有真實 LINE／AI 端到端驗收或正式部署的證據。建立付費服務前，請先確認帳號、方案、費用與備份需求。
+
+## 1. 先試用本機 demo
+
+安裝 Node.js 24 LTS（版本記在 `.node-version`），開啟終端機並切到專案根目錄：
+
+```bash
+npm ci
+npm run check
+npm test
+npm run build
+npm run demo
+```
+
+最後一個指令會持續執行。Demo 使用內嵌 PostgreSQL 與假的外部服務，不需要 LINE 或 AI 金鑰。預設連接埠為 3000，資料保存在 `.local/demo`，模擬送出的訊息保存在 `.local/demo-outbound.jsonl`；兩者都不應加入 Git。這些本機模擬輸出只能用假客人資料測試。
+
+在第二個終端機切到同一目錄，送一則已簽章的假訊息：
+
+```bash
+npm run demo:send -- "我想預約剪髮，週五下午方便嗎？"
+```
+
+檢查模擬輸出有客人回覆及店主通知，預約仍為需求、沒有宣稱預約成功。按 `Ctrl+C` 停止 demo，再執行 `npm run demo`，確認資料保留；不要刪除資料目錄來模擬重啟。
+
+可在同一台機器內檢查健康狀態。以下是終端機驗證，不是可分享的預覽網址：
+
+```bash
+curl --fail http://127.0.0.1:3000/healthz
+curl --fail http://127.0.0.1:3000/readyz
+```
+
+Demo 的成功只證明本機流程；真實 LINE、AI、資料庫 TLS 與 Render 設定仍需後面的真人測試。
+
+## 2. 準備安全的環境設定
+
+正式服務需要 LINE 官方帳號及 Messaging API channel、店主個人 LINE、另一個測試用個人 LINE，以及持久化 PostgreSQL。AI 模式另外需要可用的 OpenAI API 帳號、金鑰與已確認可用的模型。
+
+本機可以複製 `.env.example` 為 `.env` 再自行填入；程式會載入該檔案，已由執行環境提供的值優先。Render 則在服務的環境設定中輸入，不上傳 `.env`。`.env.example` 只有空欄與安全預設，不能直接當成正式設定使用。
+
+請勿在聊天、GitHub issue、程式碼或截圖中提供密鑰；也不要把整份環境變數或資料庫連線字串貼進日誌。若曾外洩，先在來源平台撤銷／重發，再更新部署環境。
+
+| 名稱 | 如何設定 |
+| --- | --- |
+| `NODE_ENV` | Render 設為 `production`；本機可用 `development` |
+| `PORT` | Render 由平台提供；本機預設 3000 |
+| `DATABASE_URL` | PostgreSQL 連線字串；本機 demo 不需要 |
+| `LINE_CHANNEL_SECRET` | 該 Messaging API channel 的 secret，用來驗證 webhook |
+| `LINE_CHANNEL_ACCESS_TOKEN` | 該 channel 的有效 access token，用來回覆／通知 |
+| `OWNER_LINE_USER_ID` | 唯一店主的 LINE user ID，安全設定，不能讓客人自行註冊取得權限 |
+| `TEST_LINE_USER_IDS` | 測試客人的 user ID，多個以半形逗號分隔；測試客人須與店主不同 |
+| `BOT_MODE` | 預設 `test`，只處理允許的測試客人；驗收完成才改 `live` |
+| `RESPONSE_MODE` | 預設 `fixed`，先測固定回覆；店務知識確認後可改 `ai` |
+| `SALON_AI_API_KEY` | 只在 `ai` 模式需要；放在安全環境設定 |
+| `AI_MODEL` | 只在 `ai` 模式需要；填入該 API 帳號已確認支援的模型名稱，不預填未核實型號 |
+| `KNOWLEDGE_PATH` | 預設 `knowledge/salon.md` |
+| `BOOKING_URL` | 預設 `https://g7.zoom-world.tw/Round2HairSalon/index.aspx` |
+| `PUBLIC_SITE_URL` | 預設 `https://harrishair.tw/` |
+
+正式啟動會拒絕缺少 LINE secret、token 或店主 ID 的設定；`test` 模式也必須有測試客人 ID。`ai` 模式缺少金鑰或模型時不能啟動。這些檢查不代表憑證已經過外部 API 驗證。
+
+## 3. 設定 LINE 官方帳號與身分
+
+1. 用擁有管理權限的帳號進入 LINE Official Account Manager，為指定官方帳號啟用 Messaging API，並到對應的 LINE Developers channel 設定頁。
+2. 確認 channel 所屬帳號正確，取得 channel secret 與 access token，直接存到部署平台安全環境設定。
+3. 店主自己的個人 LINE 先加此官方帳號好友，且保持能接收其訊息。用 LINE Developers 顯示的本人 user ID，或經 channel 管理員授權的身分取得流程，確認 `OWNER_LINE_USER_ID`；不要填 LINE ID、顯示名稱或官方帳號的 basic ID。
+4. 準備另一個個人 LINE 測試帳號，加官方帳號好友，經管理員授權確認其在同一 provider／channel 範圍內的 user ID，再安全填入 `TEST_LINE_USER_IDS`。不要使用店主帳號代替客人測試；店主訊息會走管理流程。
+5. 未取得正確 ID 前保留測試限制。程式不提供「第一個傳註冊的人變管理員」流程；不要為了取得 ID 開放所有客人，也不要把完整 webhook 內容印到公開日誌。
+
+LINE user ID 的取得方式與畫面會依管理員身分、provider 與 LINE 產品設定而異。若無法在現有管理介面確認測試者 ID，需由有權限的建置者依 [LINE 官方文件](https://developers.line.biz/en/docs/messaging-api/getting-user-ids/)完成安全取得；不要猜值。店主與測試客人應分別測試管理指令及一般訊息。
+
+在正式啟用前，記下原有問候訊息、自動回應與人工客服設定。依測試範圍調整 Official Account Manager 的自動回應，避免同一客人同時收到平台自動回應與本程式回覆；確認保留人工回覆入口及停機時的處理方式。
+
+## 4. 在 Render 準備持久化服務
+
+本專案建議一個付費常駐 Web Service 加一個付費持久化 PostgreSQL，放在相同區域。免費休眠服務不適合作為此正式客服流程。Render、LINE 訊息額度與 OpenAI API 分別計費，請以當時官方方案為準，不以本文件估算固定月費。
+
+`render.yaml` 只描述 Web Service，沒有資料庫方案代碼或自動建立資料庫的設定。本次讀取 Render 官方方案／Blueprint 文件遭雲端網路代理拒絕，無法核對目前 PostgreSQL 方案代碼；請在 Dashboard 依當時官方資訊選擇付費、持久化且符合備份需求的方案。請勿把「檔案已備妥」理解為已建立或付款。
+
+1. 確認要部署的 GitHub 儲存庫與分支，先通過 CI，再由有權限的人連接 Render。
+2. 在 Render Dashboard 手動建立付費 PostgreSQL。記下區域、支援版本、備份／時間點還原功能及保留期；完成一次還原測試後才存放正式客人資料。
+3. 在相同區域建立 Node Web Service。可手動輸入下表，或審閱後套用儲存庫的 Blueprint。Blueprint 使用付費 `starter` Web Service，但未預選區域；套用前，必須先在 `render.yaml` 的該 service 新增與資料庫完全相同的 `region`，代碼從當時 Render 官方資訊核對。若無法確認代碼，改用 Dashboard 手動建立並選擇相同區域，避免平台預設到別區。開始建立前核對當時方案及帳單。
+4. 選用支援 TLS 且可驗證憑證與主機名稱的 PostgreSQL 端點，將其連線字串安全填入 Web Service 的 `DATABASE_URL`。優先評估 internal connection string；若內部端點無法通過正式 TLS 驗證，改用供應商支援且能驗證的外部端點，並確認存取限制。不要把連線字串放進 Git。
+5. 依上一節補齊 LINE／店主／測試 ID。保留 `BOT_MODE=test`、`RESPONSE_MODE=fixed`。Blueprint 中 `sync: false` 的欄位由管理員提供，沒有內建密鑰；初次固定回覆部署不要求 AI 金鑰，之後啟用 AI 時再新增金鑰與模型設定。
+
+| Render 欄位 | 設定 |
+| --- | --- |
+| Runtime | Node，使用 `.node-version` 的 24 LTS |
+| Build command | `npm ci --include=dev && npm run build` |
+| Pre-deploy command | `npm run migrate` |
+| Start command | `npm start` |
+| Health check path | `/readyz` |
+| 自動部署 | 初期關閉；驗收後再決定是否開啟 |
+
+`npm run migrate` 執行編譯後的 `dist/migrate.js`，因此 build 必須先完成；`npm start` 執行 `dist/main.js`。Migration 是版本化資料更新，不是清空重建資料庫。不要在每次部署時刪表、刪資料庫或重設客人狀態。
+
+正式資料庫連線必須啟用 TLS 並驗證憑證與主機名稱，internal URL 本身不保證這些條件。依供應商目前的連線要求選擇支援驗證的端點，必要時使用外部端點；若出現憑證錯誤，檢查主機名稱、CA 信任與官方連線方式。請勿設定 `rejectUnauthorized: false`、停用 TLS 驗證或把正式資料搬到本機 demo 來繞過問題。尚未驗證真實資料庫連線前，不視為正式設定完成。
+
+部署後先確認 `/healthz`（程式存活）及 `/readyz`（資料庫可用）均成功；只有存活不代表資料庫正常。此時仍在測試模式，尚未正式開放客人。
+
+## 5. 驗證真實 webhook 與固定回覆
+
+1. 從 Render 取得服務的正式 HTTPS 網域。在 LINE Developers 的 Webhook URL 填入該網域加上 `/webhook`，例如 `https://你的服務網域/webhook`。
+2. 使用 LINE 的 Verify 功能。程式支援已簽章、`events: []` 的空驗證請求；成功只證明此項檢查，不代表客人回覆或店主通知已通過。
+3. 啟用 webhook，並確認 LINE 的 webhook 重送設定符合需求。程式先驗證原始內容簽章，再把事件與工作寫入資料庫，成功持久化後才回 HTTP 200。
+4. 由 `TEST_LINE_USER_IDS` 中的測試客人傳一則文字，確認實際收到固定回覆，店主實際收到摘要與待辦。檢查通知內時間、客人代號、需求、預約狀態與回覆送達狀態。
+5. 用未列入名單的測試帳號驗證測試限制：不應產生 AI 請求、客人回覆或私人通知內容。群組與多人聊天室不在本版服務範圍。
+6. 店主測試 `/pending`、`/take`、`/resume`、`/done` 與回饋。接手期間由測試客人再傳訊，應保存與通知店主，且不自動回答。
+7. 重啟 Web Service，確認未結案待辦與接手狀態仍保留；再完成一輪測試。確認 LINE 送出失敗與結果未知的狀態能辨識，避免把未知狀態當成成功。
+
+真實 LINE 收發與推播額度、封鎖、channel 設定都會影響結果。店主沒有收到通知時，不要只憑 HTTP 200 就視為成功；檢查私有資料庫的工作／送達狀態與不含內文的操作日誌。通知失敗不應重送客人回覆，結果未知時也不要盲目重發。
+
+## 6. 確認店務知識，再啟用 AI
+
+由店主審閱 `knowledge/salon.md`，補齊已確認的服務、價格、地址、營業時間、預約規則及去識別化語氣範例。未知項目保持「待確認」。不要加入客人姓名、電話、LINE ID、完整聊天紀錄、API 金鑰或資料庫備份。
+
+同時維護與 `salon.md` 放在同一資料夾的 `facts.json`。這是實際對客人回覆的資料來源：`address` 與 `hours` 填已確認文字、`services` 填 `{"name":"服務名稱","price":"已確認的價格說明"}`；未知值保持 `null`，不要補猜。`faqs` 每筆格式為 `{"keywords":["客人問題關鍵詞"],"answer":"你確認過的回法"}`，關鍵詞至少兩字；避免太廣泛。`voice.greeting` 與 `voice.handoff` 可調整成你的語氣。審閱完才把 `approved` 改為 `true`。未核准時不會使用其中的店務事實；AI 自由生成的回覆不會直接發給客人。沒有對應資料的詢問會留下待辦並轉交本人，之後可持續新增常見問答。
+
+本次雲端環境無法讀取個人網站與公司預約網站；提供連結不表示已驗證網頁內容、供應商或 API。現階段只引導至既有預約網址，沒有平台串接。客人說「我已預約」只記為客人自述，不能自動改成平台已確認。
+
+店務知識確認後，在 Render 安全設定 `SALON_AI_API_KEY` 與帳號確實支援的 `AI_MODEL`，再把 `RESPONSE_MODE` 改成 `ai`，保留 `BOT_MODE=test` 並重新部署。用真人測試客人檢查一般詢問、未知價格、預約需求、已預約自述、要求真人、不支援的圖片／音訊，以及店主接手。AI 失敗或逾時應留下待辦並使用保守的人工確認提示，不得生成精確報價或成功預約。
+
+完成真人端到端驗收、資料告知、備份與回復準備後，才由管理員把 `BOT_MODE` 改為 `live`。這會開放一般一對一客人，請安排店主在場觀察第一輪訊息。保留可快速切回測試模式或停用 webhook 的操作權限。
+
+## 7. 店主日常操作
+
+店主使用設定好的個人 LINE 對此官方帳號傳送指令，不是把指令傳給客人。以下代號是格式範例，請換成實際通知中的編號：
+
+| 指令 | 意思 |
+| --- | --- |
+| `/help` | 顯示操作說明 |
+| `/pending` | 列出待辦與客人代號 |
+| `/pending T000001` | 依上一頁最後提供的代號查看較舊待辦 |
+| `/take C000001` | 接手該客人；之後新訊息交由店主處理 |
+| `/resume C000001` | 明確恢復該客人的自動回覆 |
+| `/done T000001` | 將待辦結案 |
+| `/confirm T000001` | 店主依自己查證結果，人工確認此預約；不會查詢平台 |
+| `/feedback T000001 這次應先詢問髮況，再由我報價` | 記錄問題及正確回法 |
+
+從 LINE Official Account Manager 手動回覆客人前，先 `/take`；程式不保證能偵測所有後台手動訊息。處理完再依需要 `/done` 與 `/resume`。完成待辦與恢復自動回覆是分別操作，避免結案後意外開始自動回覆。
+
+客人要求真人，或涉及複雜染燙、髮況判斷、未確認報價、客訴與退款時交給店主。`/confirm` 是店主的確認紀錄，不能當成平台 API 驗證。不要為了測試而確認不存在的正式訂單。
+
+## 8. 更新、保存與回復
+
+回饋先留在私人資料庫，AI 不會自動永久學會。由店主與建置者把可泛用的正確回法整理、去識別化後，再更新店務指南或程式規則。每次更新先執行：
+
+```bash
+npm ci
+npm run check
+npm test
+npm run build
+```
+
+審閱 Git 差異，確認沒有密鑰與客人資料。記錄部署 commit，在測試模式驗證改動後才部署正式版本。資料庫變更先備份並檢查與前一版程式的相容性；不要假設回復程式版本會回復資料。
+
+原始對話、含原文回饋與通知載荷採 30 天清理；已結案待辦的精簡資料與事件去重識別碼採 90 天。未結案待辦保留必要狀態，超期原文仍應清除。備份的保留期由資料庫方案另行管理，刪除線上資料不等於所有備份立即刪除。正式使用前確認告知方式、資料存取人員、備份保存期與還原流程。
+
+通知第一次失敗後約 30 秒再試，第二次失敗後約 2 分鐘再試，最多三次並沿用相同重試識別碼。操作日誌的 `owner_notification_failed` 只包含通知識別碼、次數、送達狀態及是否終止，不含對話或憑證；即使通知失敗，待辦仍保存在資料庫，店主可用 `/pending` 查詢。人工指令與客人 AI 工作有獨立的處理流程，所以 `/take` 不必等待正在生成的 AI 回覆。
+
+出現錯誤回覆時，先用 `/take` 接手相關客人，必要時切回 `BOT_MODE=test` 或停用 LINE webhook，並恢復原有人工客服。Render 可重新部署上一個已驗證的 commit；回復後重新檢查健康狀態、固定回覆、店主通知與接手狀態。涉及不相容 migration 時，由有權限的維護者依備份／相容性計畫處理，切勿直接刪表或覆蓋正式資料。
+
+## 9. 常見問題
+
+| 現象 | 先檢查 |
+| --- | --- |
+| 程式拒絕啟動 | 必填環境變數、`BOT_MODE`／`RESPONSE_MODE`、測試 ID 是否與店主不同；修改後重啟 |
+| LINE Verify 失敗 | HTTPS 網域、`/webhook` 路徑、服務健康、channel secret 是否屬於同一 channel；簽章需要原始 body |
+| 存活但未就緒 | `DATABASE_URL`、migration、資料庫存取與 TLS；不要停用驗證 |
+| 測試客人沒有回覆 | allowlist 的 user ID、是否正在人工接手、訊息是否為一對一、LINE token／額度及送達狀態 |
+| 店主沒有通知 | 店主是否加好友、ID 與 channel 範圍是否正確、是否封鎖、推播額度、通知工作的失敗／未知狀態 |
+| AI 未啟用 | 知識是否已確認、`RESPONSE_MODE=ai`、金鑰與模型權限；固定模式不會呼叫 AI |
+| 重啟後 demo／正式資料不見 | 是否用了不同資料目錄或不同資料庫；正式服務不可使用 `.local/demo` |
+
+官方參考：[LINE webhook](https://developers.line.biz/en/docs/messaging-api/receiving-messages/)、[Render 部署設定](https://render.com/docs/blueprint-spec)、[Render PostgreSQL](https://render.com/docs/postgresql)、[OpenAI API](https://platform.openai.com/docs/)。請以當時官方畫面與文件核對方案、權限及限制；上述參考連結不代表本次已成功讀取所有頁面。

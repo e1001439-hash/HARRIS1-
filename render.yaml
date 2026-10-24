@@ -1,0 +1,39 @@
+# 審閱後才由管理員在 Render 套用；此檔案本身不會建立付費資源。
+# 先手動建立同區域的付費持久化 PostgreSQL，確認備份與方案。
+# 目前無法核對資料庫方案代碼，因此此 Blueprint 不自動建立資料庫。
+# 套用前先在此 service 新增與資料庫相同的 region；請用平台提供的代碼。
+# 未確認 region 代碼時，依 docs/SETUP.md 手動建立同區域 Web Service。
+services:
+  - type: web
+    name: harris-line-assistant
+    runtime: node
+    plan: starter
+    autoDeploy: false
+    buildCommand: npm ci --include=dev && npm run build
+    preDeployCommand: npm run migrate
+    startCommand: npm start
+    healthCheckPath: /readyz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: OWNER_LINE_USER_ID
+        sync: false
+      - key: TEST_LINE_USER_IDS
+        sync: false
+      - key: BOT_MODE
+        value: test
+      - key: RESPONSE_MODE
+        value: fixed
+      # 啟用 AI 時再於安全環境設定新增 SALON_AI_API_KEY 與 AI_MODEL。
+      - key: KNOWLEDGE_PATH
+        value: knowledge/salon.md
+      - key: BOOKING_URL
+        value: https://g7.zoom-world.tw/Round2HairSalon/index.aspx
+      - key: PUBLIC_SITE_URL
+        value: https://harrishair.tw/

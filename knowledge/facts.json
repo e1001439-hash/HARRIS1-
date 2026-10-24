@@ -1,0 +1,11 @@
+{
+  "approved": false,
+  "address": null,
+  "hours": null,
+  "services": [],
+  "faqs": [],
+  "voice": {
+    "greeting": "你好，想了解服務或預約呢？",
+    "handoff": "收到你的訊息，這部分需要由我本人確認，稍後再回覆你。"
+  }
+}
