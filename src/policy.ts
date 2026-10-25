@@ -1,23 +1,29 @@
 import { validateAnswer } from './clients/ai.js';
-import type { AiResult } from './types.js';
+import type { AiInput, AiResult } from './types.js';
 import { emptyFacts, type SalonFacts } from './knowledge.js';
 
 export const humanRequired = (text: string) => /真人|本人|人工|髮型師|客訴|退款|過敏|頭皮受傷|染黑|受損|漂髮|漂頭髮/.test(text);
 export function humanFallback(text: string, reason = '需要本人確認'): AiResult {
   return { reply: '收到你的訊息，這部分需要由我本人確認，稍後再回覆你。', summary: text.slice(0, 500) || '收到非文字訊息', service: null, requestedTime: null, bookingStatus: /預約/.test(text) ? 'requested' : 'none', needsHuman: true, nextAction: reason };
 }
-export function applyPolicy(value: unknown, text: string, _knowledge: string, bookingUrl: string, facts: SalonFacts = emptyFacts()): AiResult {
+export function extractRequest(value: unknown, text: string, history: AiInput['history'] = []): AiResult {
   const answer = validateAnswer(value);
-  // The model extracts intent; customer-visible facts/commitments come only from
-  // reviewed structured facts and editable templates, never unrestricted prose.
-  const voice = facts.approved ? facts.voice : emptyFacts().voice;
-  const fallback = (reason: string) => ({ ...humanFallback(text, reason), reply: voice.handoff });
   answer.summary = text.slice(0, 500);
+  // A changed time must occur in this message. Services may be continued from
+  // bounded customer history, never from an assistant's invented suggestion.
   if (answer.requestedTime && !text.includes(answer.requestedTime)) answer.requestedTime = null;
-  if (answer.service && !text.includes(answer.service)) answer.service = null;
+  const customerContext = [...history.slice(-10).filter(turn => turn.role === 'user').map(turn => turn.content), text].join('\n');
+  if (answer.service && !customerContext.includes(answer.service)) answer.service = null;
   const selfReported = /(?:已經|已|完成|好了).{0,6}預約|預約.{0,6}(?:好了|完成|成功)/.test(text);
   const availability = /(?:今天|明天|後天|週|星期|禮拜|上午|下午|晚上|\d{1,2}[月/:點]).*(?:可以|有空|有位|能)|空檔|有空位|約時間|約時段/.test(text);
   answer.bookingStatus = selfReported ? 'self_reported' : /預約/.test(text) || availability || answer.bookingStatus === 'requested' ? 'requested' : 'none';
+  return answer;
+}
+export function applyPolicy(value: unknown, text: string, _knowledge: string, bookingUrl: string, facts: SalonFacts = emptyFacts(), history: AiInput['history'] = []): AiResult {
+  const answer = extractRequest(value, text, history);
+  // Customer-facing facts/commitments still come only from reviewed templates.
+  const voice = facts.approved ? facts.voice : emptyFacts().voice;
+  const fallback = (reason: string) => ({ ...humanFallback(text, reason), reply: voice.handoff });
   if (answer.bookingStatus === 'requested') {
     answer.reply = `收到你的預約需求！你可以先透過這個連結選擇項目與時段：\n${bookingUrl}\n是否預約成功，請以預約平台的確認結果為準。需要協助的部分會再由本人確認。`;
     answer.needsHuman = true; answer.nextAction = '確認客人是否仍需協助預約；目前僅收到需求';

@@ -10,7 +10,7 @@ const eventSchema = z.object({
 }).refine(e => e.type !== 'message' || !!e.message && (e.message.type !== 'text' || typeof e.message.text === 'string'));
 const bodySchema = z.object({ events: z.array(eventSchema).max(100) });
 
-export function createApp({ config, store }: { config: Config; store: { ingest(events: LineEvent[]): Promise<void>; ping(): Promise<void> } }) {
+export function createApp({ config, store }: { config: Config; store: { ingest(events: LineEvent[], ownerId?: string): Promise<void>; ping(): Promise<void> } }) {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
@@ -24,7 +24,7 @@ export function createApp({ config, store }: { config: Config; store: { ingest(e
     if (!parsed.success) return res.code(400).send({ error: 'invalid events' });
     const accepted = parsed.data.events.filter(e => e.type === 'message' && e.source.type === 'user' && e.source.userId &&
       (e.source.userId === config.ownerId || config.mode === 'live' || config.testUserIds.includes(e.source.userId)));
-    try { if (accepted.length) await store.ingest(accepted); } catch { return res.code(503).send({ error: 'storage unavailable' }); }
+    try { if (accepted.length) await store.ingest(accepted, config.ownerId); } catch { return res.code(503).send({ error: 'storage unavailable' }); }
     return { ok: true };
   });
   return app;

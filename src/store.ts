@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { formatNotification } from './notifications.js';
+import { formatNotification, formatReceipt } from './notifications.js';
 import type { Database, EventJob, LineEvent, NotificationJob, Outcome, Session, Task } from './types.js';
 
 const REDACTED = '[已依保存期限移除]';
+// The LINE source timestamp is authoritative; insertion sequence breaks ties.
+const latestEventSql = `NOT EXISTS (SELECT 1 FROM events newer WHERE newer.user_id = e.user_id
+  AND (newer.received_at, newer.sequence) > (e.received_at, e.sequence))`;
 type EventRow = {
   id: string; user_id: string; customer_ref: string; payload: LineEvent | null;
   received_at: Date | string; attempts: number; lease_token: string;
   send_started: Date | null; text_removed_at: Date | null;
+  manual_handoff: boolean; handoff?: boolean; handoff_revision?: number;
   expired?: boolean;
 };
 type SessionRow = { user_id: string; customer_ref: string; handoff: boolean };
@@ -26,7 +30,7 @@ export class Store {
 
   async ping(): Promise<void> { await this.db.query('SELECT 1'); }
 
-  async ingest(events: LineEvent[]): Promise<void> {
+  async ingest(events: LineEvent[], ownerId?: string): Promise<void> {
     await this.db.transaction(async tx => {
       // Serialize each customer's insertion sequence before any event INSERT.
       // A single claim statement's MVCC snapshot otherwise can hide an earlier
@@ -39,10 +43,27 @@ export class Store {
       for (const event of events) {
         const userId = event.source.userId;
         if (!userId) continue;
-        await tx.query(`INSERT INTO events (id, user_id, payload, received_at) VALUES ($1, $2, $3::jsonb, $4)
-          ON CONFLICT (id) DO NOTHING`, [event.webhookEventId, userId, JSON.stringify(event), new Date(event.timestamp)]);
+        const receivedAt = new Date(event.timestamp);
+        const inserted = await tx.query(`INSERT INTO events (id, user_id, payload, received_at, manual_handoff)
+          SELECT $1, $2, $3::jsonb, $4, handoff FROM sessions WHERE user_id = $2
+          ON CONFLICT (id) DO NOTHING RETURNING id`, [event.webhookEventId, userId, JSON.stringify(event), receivedAt]);
+        if (!inserted.rows.length || ownerId === undefined || userId === ownerId) continue;
+        const session = await tx.query<SessionRow>('SELECT user_id, customer_ref, handoff FROM sessions WHERE user_id = $1', [userId]);
+        const text = event.message?.type === 'text' ? event.message.text ?? '' : `[非文字訊息：${event.message?.type ?? event.type}]`;
+        const task = await tx.query<{ id: string }>(`INSERT INTO tasks (event_id, user_id, status, booking_status, summary, next_action, received_at)
+          VALUES ($1,$2,'open','none',$3,'訊息待整理，請店主確認需求',$4) RETURNING id`,
+        [event.webhookEventId, userId, text.slice(0, 1000), receivedAt]);
+        const taskId = task.rows[0]!.id;
+        await tx.query(`INSERT INTO notifications (id, task_id, owner_id, text, retry_key, phase)
+          VALUES ($1,$2,$3,$4,$5,'receipt')`, [randomUUID(), taskId, ownerId,
+          formatReceipt({ customerRef: session.rows[0]!.customer_ref, receivedAt, text, taskId }), randomUUID()]);
       }
     });
+  }
+
+  async isLatestEvent(job: EventJob): Promise<boolean> {
+    const result = await this.db.query(`SELECT e.id FROM events e WHERE e.id = $1 AND e.user_id = $2 AND ${latestEventSql}`, [job.id, job.userId]);
+    return result.rows.length === 1;
   }
 
   async getSession(userId: string): Promise<Session> {
@@ -62,13 +83,14 @@ export class Store {
     await this.db.transaction(async tx => {
       await tx.query('INSERT INTO sessions (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [userId]);
       await tx.query('SELECT user_id FROM sessions WHERE user_id = $1 FOR UPDATE', [userId]);
-      await tx.query('UPDATE sessions SET handoff = $2 WHERE user_id = $1', [userId, handoff]);
+      await tx.query('UPDATE sessions SET handoff = $2, handoff_revision = handoff_revision + 1 WHERE user_id = $1', [userId, handoff]);
+      if (handoff) await tx.query(`UPDATE events SET manual_handoff = true WHERE user_id = $1 AND status IN ('pending', 'processing')`, [userId]);
     });
   }
 
   async claimEvent(filter: { onlyUserId?: string; excludeUserId?: string } = {}): Promise<EventJob | null> {
     return this.db.transaction(async tx => {
-      const result = await tx.query<EventRow>(`SELECT e.*, s.customer_ref FROM events e
+      const result = await tx.query<EventRow>(`SELECT e.*, s.customer_ref, s.handoff, s.handoff_revision FROM events e
         JOIN sessions s ON s.user_id = e.user_id
         WHERE (e.status = 'pending' OR (e.status = 'processing' AND e.lease_until < clock_timestamp()))
           AND ($1::text IS NULL OR e.user_id = $1) AND ($2::text IS NULL OR e.user_id <> $2)
@@ -78,14 +100,16 @@ export class Store {
       const row = result.rows[0];
       if (!row) return null;
       const leaseToken = randomUUID();
+      const manualHandoff = row.manual_handoff || row.handoff === true;
       await tx.query(`UPDATE events SET status = 'processing', attempts = attempts + 1,
-        lease_token = $2, lease_until = clock_timestamp() + interval '90 seconds' WHERE id = $1`, [row.id, leaseToken]);
+        lease_token = $2, lease_until = clock_timestamp() + interval '90 seconds',
+        manual_handoff = manual_handoff OR $3 WHERE id = $1`, [row.id, leaseToken, manualHandoff]);
       const receivedAt = new Date(row.received_at);
       return {
         id: row.id, userId: row.user_id, customerRef: row.customer_ref,
         event: row.payload ?? { type: 'message', webhookEventId: row.id, timestamp: receivedAt.getTime(), source: { type: 'user', userId: row.user_id }, message: { type: 'expired' } },
         receivedAt, leaseToken, previouslySending: row.send_started !== null,
-        attempts: row.attempts + 1,
+        attempts: row.attempts + 1, manualHandoff, handoffRevision: row.handoff_revision ?? 0,
       };
     });
   }
@@ -94,9 +118,10 @@ export class Store {
     return this.db.transaction(async tx => {
       const session = await tx.query<SessionRow>('SELECT user_id, customer_ref, handoff FROM sessions WHERE user_id = $1 FOR UPDATE', [job.userId]);
       if (!session.rows[0] || (session.rows[0].handoff && !ignoreHandoff)) return false;
-      const result = await tx.query(`UPDATE events SET send_started = now() WHERE id = $1 AND user_id = $2
+      const result = await tx.query(`UPDATE events e SET send_started = now() WHERE id = $1 AND user_id = $2
         AND status = 'processing' AND lease_token = $3 AND lease_until > clock_timestamp() AND send_started IS NULL
-        AND text_removed_at IS NULL AND ingested_at > now() - interval '30 days' RETURNING id`, [job.id, job.userId, job.leaseToken]);
+        AND text_removed_at IS NULL AND ingested_at > now() - interval '30 days'
+        AND ($4::boolean OR (NOT manual_handoff AND ${latestEventSql})) RETURNING id`, [job.id, job.userId, job.leaseToken, ignoreHandoff]);
       return result.rows.length === 1;
     });
   }
@@ -119,14 +144,35 @@ export class Store {
       const task = await tx.query<{ id: string }>(`INSERT INTO tasks (event_id, user_id, status, booking_status,
         summary, next_action, service, requested_time, received_at, closed_at, text_removed_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,CASE WHEN $3 = 'done' THEN now() ELSE NULL END,
-          CASE WHEN $10::boolean THEN now() ELSE NULL END) RETURNING id`,
+          CASE WHEN $10::boolean THEN now() ELSE NULL END)
+        ON CONFLICT (event_id) DO UPDATE SET
+          status = CASE WHEN tasks.status = 'done' THEN tasks.status ELSE EXCLUDED.status END,
+          closed_at = COALESCE(tasks.closed_at, EXCLUDED.closed_at),
+          booking_status = CASE WHEN tasks.booking_status = 'owner_confirmed' THEN tasks.booking_status ELSE EXCLUDED.booking_status END,
+          summary = CASE WHEN tasks.text_removed_at IS NOT NULL THEN $11 ELSE EXCLUDED.summary END,
+          next_action = CASE WHEN tasks.text_removed_at IS NOT NULL THEN $11 ELSE EXCLUDED.next_action END,
+          service = CASE WHEN tasks.text_removed_at IS NOT NULL THEN NULL ELSE EXCLUDED.service END,
+          requested_time = CASE WHEN tasks.text_removed_at IS NOT NULL THEN NULL ELSE EXCLUDED.requested_time END,
+          text_removed_at = COALESCE(tasks.text_removed_at, EXCLUDED.text_removed_at)
+        RETURNING id`,
       [job.id, job.userId, safeOutcome.needsHuman ? 'open' : 'done', safeOutcome.bookingStatus, safeOutcome.summary,
-        safeOutcome.nextAction, safeOutcome.service, safeOutcome.requestedTime, job.receivedAt, redacted]);
-      if (safeOutcome.needsHuman) await tx.query('UPDATE sessions SET handoff = true WHERE user_id = $1', [job.userId]);
+        safeOutcome.nextAction, safeOutcome.service, safeOutcome.requestedTime, job.receivedAt, redacted, REDACTED]);
+      if (safeOutcome.needsHuman && !safeOutcome.preserveHandoff && !row.manual_handoff) {
+        await tx.query('UPDATE sessions SET handoff = true WHERE user_id = $1 AND handoff_revision = $2', [job.userId, job.handoffRevision ?? 0]);
+      }
       const taskId = task.rows[0]!.id;
-      await tx.query(`INSERT INTO notifications (id, task_id, owner_id, text, retry_key, text_removed_at)
-        VALUES ($1,$2,$3,$4,$5,CASE WHEN $6::boolean THEN now() ELSE NULL END)`,
-      [randomUUID(), taskId, ownerId, redacted ? REDACTED : formatNotification({ job, outcome: safeOutcome, taskId }), randomUUID(), redacted]);
+      if (redacted) {
+        await tx.query(`UPDATE notifications SET text = $2, text_removed_at = COALESCE(text_removed_at, now()) WHERE task_id = $1`, [taskId, REDACTED]);
+      }
+      const latest = await tx.query(`SELECT e.id FROM events e WHERE e.id = $1 AND ${latestEventSql}`, [job.id]);
+      if (!latest.rows.length) return;
+      const text = redacted ? REDACTED : formatNotification({ job, outcome: safeOutcome, taskId });
+      // Keep the original receipt independent: suppressing an outdated analysis
+      // must never erase the only notification for that source message.
+      await tx.query(`INSERT INTO notifications (id, task_id, owner_id, text, retry_key, phase, text_removed_at)
+        VALUES ($1,$2,$3,$4,$5,'analysis',CASE WHEN $6::boolean THEN now() ELSE NULL END)
+        ON CONFLICT (task_id, phase) DO NOTHING`,
+      [randomUUID(), taskId, ownerId, text, randomUUID(), redacted]);
     });
   }
 
@@ -144,26 +190,65 @@ export class Store {
 
   async claimNotification(): Promise<NotificationJob | null> {
     return this.db.transaction(async tx => {
+      await tx.query(`UPDATE notifications n SET status = 'superseded', lease_token = NULL, lease_until = NULL
+        FROM tasks t JOIN events e ON e.id = t.event_id
+        WHERE n.task_id = t.id AND n.phase = 'analysis' AND n.status NOT IN ('sent', 'superseded')
+          AND NOT (${latestEventSql})`);
+      // A receipt with an expired claim is also obsolete once its analysis arrived.
+      await tx.query(`UPDATE notifications receipt SET status = 'superseded', lease_token = NULL, lease_until = NULL
+        WHERE receipt.phase = 'receipt' AND receipt.status NOT IN ('sent', 'superseded')
+          AND (receipt.status <> 'processing' OR receipt.lease_until < clock_timestamp())
+          AND EXISTS (SELECT 1 FROM notifications analysis WHERE analysis.task_id = receipt.task_id
+            AND analysis.phase = 'analysis' AND analysis.status = 'sent')`);
       // An expired final attempt is kept as unknown, never silently requeued.
       await tx.query(`UPDATE notifications SET status = 'unknown', lease_token = NULL, lease_until = NULL
         WHERE status = 'processing' AND lease_until < clock_timestamp() AND attempts >= 3`);
-      const result = await tx.query<{ id: string; owner_id: string; text: string; retry_key: string; attempts: number }>(`SELECT * FROM notifications
-        WHERE attempts < 3 AND next_attempt_at <= clock_timestamp() AND text_removed_at IS NULL AND created_at > now() - interval '30 days'
-          AND (status IN ('pending','failed','unknown') OR (status = 'processing' AND lease_until < clock_timestamp()))
-        ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED`);
+      const result = await tx.query<{ id: string; owner_id: string; text: string; retry_key: string; attempts: number; phase: 'receipt' | 'analysis'; event_id: string; user_id: string }>(
+        `SELECT n.*, t.event_id, t.user_id FROM notifications n JOIN tasks t ON t.id = n.task_id JOIN events e ON e.id = t.event_id
+        WHERE n.attempts < 3 AND n.next_attempt_at <= clock_timestamp()
+          AND n.text_removed_at IS NULL AND n.created_at > now() - interval '30 days'
+          AND t.text_removed_at IS NULL AND t.created_at > now() - interval '30 days'
+          AND e.text_removed_at IS NULL AND e.ingested_at > now() - interval '30 days'
+          AND (n.status IN ('pending','failed','unknown') OR (n.status = 'processing' AND n.lease_until < clock_timestamp()))
+          AND (n.phase = 'receipt' OR ${latestEventSql})
+        ORDER BY n.created_at, n.id LIMIT 1 FOR UPDATE OF n SKIP LOCKED`);
       const row = result.rows[0];
       if (!row) return null;
       const leaseToken = randomUUID();
       await tx.query(`UPDATE notifications SET status = 'processing', attempts = attempts + 1,
         lease_token = $2, lease_until = clock_timestamp() + interval '90 seconds' WHERE id = $1`, [row.id, leaseToken]);
-      return { id: row.id, ownerId: row.owner_id, text: row.text, retryKey: row.retry_key, leaseToken, attempts: row.attempts + 1 };
+      return { id: row.id, ownerId: row.owner_id, text: row.text, retryKey: row.retry_key, leaseToken, attempts: row.attempts + 1,
+        phase: row.phase, eventId: row.event_id, userId: row.user_id };
+    });
+  }
+
+  async canSendNotification(job: NotificationJob): Promise<boolean> {
+    return this.db.transaction(async tx => {
+      await tx.query(`UPDATE notifications n SET status = 'superseded', lease_token = NULL, lease_until = NULL
+        FROM tasks t JOIN events e ON e.id = t.event_id
+        WHERE n.id = $1 AND n.lease_token = $2 AND n.status = 'processing' AND n.lease_until > clock_timestamp()
+          AND n.task_id = t.id AND n.phase = 'analysis' AND NOT (${latestEventSql})`, [job.id, job.leaseToken]);
+      const result = await tx.query(`SELECT n.id FROM notifications n JOIN tasks t ON t.id = n.task_id JOIN events e ON e.id = t.event_id
+        WHERE n.id = $1 AND n.lease_token = $2 AND n.status = 'processing' AND n.lease_until > clock_timestamp()
+          AND n.text_removed_at IS NULL AND n.created_at > now() - interval '30 days'
+          AND t.text_removed_at IS NULL AND t.created_at > now() - interval '30 days'
+          AND e.text_removed_at IS NULL AND e.ingested_at > now() - interval '30 days'
+          AND (n.phase = 'receipt' OR ${latestEventSql})`, [job.id, job.leaseToken]);
+      return result.rows.length === 1;
     });
   }
 
   async finishNotification(job: NotificationJob, status: 'sent' | 'failed' | 'unknown'): Promise<void> {
-    await this.db.query(`UPDATE notifications SET status = $3, lease_token = NULL, lease_until = NULL,
-      next_attempt_at = clock_timestamp() + CASE WHEN attempts = 1 THEN interval '30 seconds' ELSE interval '2 minutes' END
-      WHERE id = $1 AND lease_token = $2 AND status = 'processing' AND lease_until > clock_timestamp()`, [job.id, job.leaseToken, status]);
+    await this.db.transaction(async tx => {
+      const result = await tx.query<{ task_id: string; phase: string }>(`UPDATE notifications SET status = $3, lease_token = NULL, lease_until = NULL,
+        next_attempt_at = clock_timestamp() + CASE WHEN attempts = 1 THEN interval '30 seconds' ELSE interval '2 minutes' END
+        WHERE id = $1 AND lease_token = $2 AND status = 'processing' AND lease_until > clock_timestamp() RETURNING task_id, phase`, [job.id, job.leaseToken, status]);
+      const row = result.rows[0];
+      if (row?.phase === 'analysis' && status === 'sent') {
+        await tx.query(`UPDATE notifications SET status = 'superseded', lease_token = NULL, lease_until = NULL
+          WHERE task_id = $1 AND phase = 'receipt' AND status NOT IN ('processing', 'sent', 'superseded')`, [row.task_id]);
+      }
+    });
   }
 
   async listTasks(beforeId?: string): Promise<Task[]> {
@@ -198,9 +283,11 @@ export class Store {
       await tx.query(`UPDATE events SET payload = NULL, outcome = NULL, text_removed_at = now()
         WHERE ingested_at < now() - interval '30 days' AND text_removed_at IS NULL`);
       await tx.query(`UPDATE tasks SET summary = $1, next_action = $1, service = NULL, requested_time = NULL, text_removed_at = now()
-        WHERE created_at < now() - interval '30 days' AND text_removed_at IS NULL`, [REDACTED]);
+        WHERE text_removed_at IS NULL AND (created_at < now() - interval '30 days'
+          OR EXISTS (SELECT 1 FROM events e WHERE e.id = tasks.event_id AND e.text_removed_at IS NOT NULL))`, [REDACTED]);
       await tx.query(`UPDATE notifications SET text = $1, text_removed_at = now()
-        WHERE created_at < now() - interval '30 days' AND text_removed_at IS NULL`, [REDACTED]);
+        WHERE text_removed_at IS NULL AND (created_at < now() - interval '30 days'
+          OR EXISTS (SELECT 1 FROM tasks t WHERE t.id = notifications.task_id AND t.text_removed_at IS NOT NULL))`, [REDACTED]);
       await tx.query(`UPDATE feedback SET text = $1, text_removed_at = now()
         WHERE created_at < now() - interval '30 days' AND text_removed_at IS NULL`, [REDACTED]);
       await tx.query("DELETE FROM tasks WHERE status = 'done' AND closed_at < now() - interval '90 days'");

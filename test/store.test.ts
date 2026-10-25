@@ -42,7 +42,7 @@ test('migrations initialize durable event, session, task and outbox tables', asy
       assert.ok(names.includes(expected), `${expected} must survive a process restart`);
     }
     await Promise.all([migrate(db), migrate(db)]);
-    assert.deepEqual((await db.query<{version:number}>('SELECT version FROM schema_migrations ORDER BY version')).rows.map(row => row.version), [1, 2]);
+    assert.deepEqual((await db.query<{version:number}>('SELECT version FROM schema_migrations ORDER BY version')).rows.map(row => row.version), [1, 2, 3]);
   } finally { await db.close(); }
 });
 
@@ -273,7 +273,7 @@ test('database reopen retains dedupe, pending work, handoff and owner tasks', as
   try {
     const db = await createTestDatabase(dir);
     const store = await storeFor(db);
-    await store.ingest([event('persist'), event('pending')]);
+    await store.ingest([event('persist'), event('pending', 'other-customer')]);
     await store.finishEvent(await requiredJob(store), outcome(), 'owner');
     await db.close();
     const reopened = await createTestDatabase(dir);
@@ -291,7 +291,7 @@ test('database reopen retains dedupe, pending work, handoff and owner tasks', as
 
 test('retention removes all 30-day text copies without deleting open tasks or reenabling delivery', async () => {
   await fixture(async (store, db) => {
-    await store.ingest([event('old-open'), event('old-pending')]);
+    await store.ingest([event('old-open'), event('old-pending')], 'owner');
     await store.finishEvent(await requiredJob(store), outcome(), 'owner');
     await store.addFeedback('T000001', '私人的修正文字');
     await db.query("UPDATE events SET ingested_at = now() - interval '31 days'");

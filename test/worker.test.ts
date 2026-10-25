@@ -32,14 +32,14 @@ test('AI failure creates human handoff and still notifies owner', async () => {
     assert.ok(!f.pushes[0]!.includes('private')); assert.match(f.replies[0]!, /本人/);
   } finally { await f.db.close(); }
 });
-test('human request and media bypass AI; subsequent handoff messages get no automatic reply', async () => {
+test('human request and media bypass AI; handoff continuations are analyzed without replies', async () => {
   let calls = 0; const f = await fixture(async () => { calls++; return base; });
-  try { await f.store.ingest([event('human', '我要找真人')]); await f.worker.tick();
+  try { await f.store.ingest([event('human', '我要找真人')]); await f.worker.tick(); assert.equal(calls, 0);
     await f.store.ingest([event('follow', '我補充一下')]); await f.worker.tick();
-    assert.equal(calls, 0); assert.equal(f.replies.length, 1); assert.equal(f.pushes.length, 2);
+    assert.equal(calls, 1); assert.equal(f.replies.length, 1); assert.equal(f.pushes.length, 2);
     await f.store.setHandoff(customer, false);
     const media = event('photo', ''); media.message = { type: 'image' };
-    await f.store.ingest([media]); await f.worker.tick(); assert.equal(calls, 0); assert.match(f.replies[1]!, /本人/);
+    await f.store.ingest([media]); await f.worker.tick(); assert.equal(calls, 1); assert.match(f.replies[1]!, /本人/);
   } finally { await f.db.close(); }
 });
 test('handoff activated during AI generation suppresses late automated reply', async () => {
