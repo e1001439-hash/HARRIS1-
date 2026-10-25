@@ -2,6 +2,23 @@
 
 本次開發日期：2026-10-24。程式尚未對正式客人啟用；以下把本地驗證與外部服務驗收分開記錄。
 
+## 2026-10-25 啟動失敗調查與安全診斷
+
+本人提供的 Render 日誌確認 `732a51f31557c6326539df6df2e8864d3056cb92`／`main` 建置成功，執行 `npm start` → `node --use-env-proxy dist/main.js` 後，由主程式通用 catch 記錄失敗並退出1。本人最後選擇免費 Web Service、Pre-deploy 空白、`/readyz`、自動部署關閉；Webhook 尚未啟用。
+
+已排除「不知是否舊版本」這個資訊缺口。主程式本身在監聽前執行 migration，因此不能把 Pre-deploy 空白當成漏做資料更新；程式沒有付費方案檢查，也不能由此歸因免費方案。既有 catch 及 PgDatabase 包裝抹去分類，目前沒有足夠證據確定正式部署根因，不能猜測 TLS、認證或資料庫是否需重建。
+
+本輪僅本地補嚴格白名單診斷，不讀正式秘密、不連正式資料庫、不改正式設定、不推送／部署、不產生費用。固定 `startup_failed` 紀錄只允許階段、已知錯誤分類與已知設定名稱；跨層安全錯誤不保留原始例外或 cause，序列化不讀原始 message／stack／URL 或任意 provider payload。
+
+- RED：實際既有 CLI 在假 invalid-owner 設定下退出1，但缺少結構化診斷，新增斷言先失敗。
+- GREEN：完整 `npm run check`、`npm test`、`npm run build` 通過；108 項通過、0 失敗、0 跳過（新增9項）。覆蓋設定缺漏／格式、知識及 facts 缺檔、JSON／schema、DB URL／TLS政策、pg三個包裝邊界、已知 TLS／DNS／認證代碼、監聽失敗、清理再失敗，以及正常初始化／關閉。
+- 保密測試使用假秘密、未知 code、message／stack／cause、額外欄位、toJSON、throwing getter／Proxy 與安全錯誤欄位污染，確認僅白名單輸出；不讀 getter 或任意錯誤文字來推測分類。
+- 編譯版 `dist/main.js` 另外以假設定執行四種失敗：缺設定→`configuration/CONFIG_MISSING`，非法 owner→`configuration/CONFIG_INVALID`，指南缺檔→`knowledge/ENOENT`，弱 TLS 選項→`database_configuration/DB_TLS_POLICY_INVALID`。各自退出1且 stderr 僅安全 JSON，沒有假秘密、URL或檔案原路徑；均在連線前停止。
+- 編譯版正常啟動沿用既有本地 PostgreSQL 17 TLS 測試容器、測試CA與假LINE值，在 production/test/fixed、零測試者、無AI金鑰下 `/readyz=200`，正常關閉；只執行本地健康 GET，沒有真 LINE 請求。啟動前確認沒有待發事件或通知，測試容器最後恢復停止。前置查詢首次誤用不存在的欄名而安全停止，依現有 `status` 欄修正後通過；產品程式不需為此變更。
+- 獨立需求與品質審查通過，無嚴重／重要阻擋；發現的文件表格位置問題已修正並複核，沒有未處理項目。未把替身監聽／環境錯誤測試當成正式系統或整個Node程序所有日誌的保證。
+
+下一個最小檢查：後續取得診斷版上傳與本人重新部署授權後，只需讀該次 `startup_failed` 的一行安全 JSON（階段／分類／必要欄位名稱）。目前實際 Render 根因仍未知；不索取設定值、不重建資料庫、不降級 TLS、不因失敗要求升級付費。
+
 ## 2026-10-25 安全測試配對（僅本地）
 
 - 完整 `npm run check`、`npm test`、`npm run build` 通過：99 項通過、0 失敗、0 跳過。新增 13 項真 PGlite 配對儲存測試及 8 項簽章 HTTP／管理命令整合測試。

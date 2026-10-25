@@ -2,7 +2,7 @@
 
 本指南從本機模擬到少量真人測試，再到正式啟用。儲存庫中的部署檔不代表已部署 Web Service；目前沒有真實 LINE／AI 端到端驗收的證據。建立付費服務前，需先取得本人授權並由本人在平台畫面確認方案、費用與備份需求。
 
-2026-10-25：本輪授權僅限安全測試配對的程式與本地假值測試。實際部署、配對人選與真實發訊尚未授權，以下相關操作仍暫停。目前只有 `harris-line-db` 資料庫顯示 Available，尚無 Web Service，資料庫 TLS 與 LINE 收發尚未驗收。
+2026-10-25 最新狀態：配對與通知修補已上傳 GitHub `main` 的 `732a51f`，CI 通過。本人自行建立 Web Service 並嘗試部署，建置成功，但啟動以通用錯誤結束；正式資料庫 TLS、LINE 收發與手機通知仍未驗收，Webhook 尚未啟用。本輪只在本地補安全啟動診斷，不推送／部署、不修改正式設定。以下操作清單須依各步的既有授權範圍執行。
 
 ## 1. 先試用本機 demo
 
@@ -74,10 +74,10 @@ Demo 的成功只證明本機流程；真實 LINE、AI、資料庫 TLS 與 Rende
 
 本專案建議一個付費常駐 Web Service 加一個付費持久化 PostgreSQL，放在相同區域。免費休眠服務不適合作為此正式客服流程。Render、LINE 訊息額度與 OpenAI API 分別計費，請以當時官方方案為準，不以本文件估算固定月費。
 
-目前 new config 頁面所選的 **US$7／月是 Web Service 選項，不是整套服務總費用**；資料庫與其他用量另計，當時實際費率仍由本人在 GUI 核對。已有 Available 的 `harris-line-db`，不要因此再建立另一個資料庫。以下順序僅供之後逐項取得授權後執行：
+本人此次新建頁最後選擇 **US$0／月的免費 Web Service** 並自行嘗試部署；這不代表資料庫或其他用量免費。程式沒有付費方案檢查，不能僅憑啟動失敗就認定必須升級方案。已有 Available 的 `harris-line-db`，不要因此再建立另一個資料庫。以下順序供後續授權與驗收時參考：
 
 1. 先經本人授權，在 GUI 確認費率與服務設定，並關閉自動部署。
-2. 再經本人授權，推送包含本輪修改的新本地 commit；本輪不推送或部署。
+2. 目前 GitHub `main` 已有通過 CI 的 `732a51f`。本輪安全診斷修補仍先留在本地，尚未取得新推送／部署授權。
 3. 由本人安全填入四個必填欄位與下表常數；Root Directory 留空，使用儲存庫根目錄。
 4. 完成資料庫 TLS 與 migration，確認 Web Service `/readyz` 成功。
 5. LINE Verify 通過後，店主先測 `/help`，再依第 5 節開啟配對。
@@ -88,7 +88,7 @@ Demo 的成功只證明本機流程；真實 LINE、AI、資料庫 TLS 與 Rende
 1. 確認要部署的 GitHub 儲存庫與分支，先通過 CI，再由有權限的人連接 Render。
 2. 沿用既有 `harris-line-db`，記下區域、支援版本、備份／時間點還原功能及保留期；完成一次還原測試後才存放正式客人資料。
 3. 在相同區域建立 Node Web Service。可手動輸入下表，或審閱後套用儲存庫的 Blueprint。Blueprint 使用付費 `starter` Web Service，但未預選區域；套用前，必須先在 `render.yaml` 的該 service 新增與資料庫完全相同的 `region`，代碼從當時 Render 官方資訊核對。若無法確認代碼，改用 Dashboard 手動建立並選擇相同區域，避免平台預設到別區。開始建立前核對當時方案及帳單。
-4. 選用支援 TLS 且可驗證憑證與主機名稱的 PostgreSQL 端點，將其連線字串安全填入 Web Service 的 `DATABASE_URL`。優先評估 internal connection string；若內部端點無法通過正式 TLS 驗證，改用供應商支援且能驗證的外部端點，並確認存取限制。不要把連線字串放進 Git。
+4. 選用支援 TLS 且可驗證憑證與主機名稱的 PostgreSQL 端點，將其連線字串安全填入 Web Service 的 `DATABASE_URL`。本次先用 External Database URL 的完整網域；Internal 短主機名是否符合憑證尚未核實，同區域不代表驗證一定相容。網址可不帶 SSL 參數；若含 `sslmode`，程式只接受 `verify-full`，會拒絕 `require` 等其他值。不要把連線字串放進 Git 或聊天。
 5. 補齊資料庫、LINE 簽章密鑰、LINE 發訊憑證與店主識別碼四個安全欄位。保留 `BOT_MODE=test`、`RESPONSE_MODE=fixed`。Blueprint 中僅這四欄為 `sync: false`，由本人安全提供；不要求預先填入測試者 ID 或 AI 金鑰／模型，店務兩個檔案已隨儲存庫附上。
 
 | Render 欄位 | 設定 |
@@ -101,7 +101,7 @@ Demo 的成功只證明本機流程；真實 LINE、AI、資料庫 TLS 與 Rende
 | Health check path | `/readyz` |
 | 自動部署 | 初期關閉；驗收後再決定是否開啟 |
 
-`npm run migrate` 執行編譯後的 `dist/migrate.js`，因此 build 必須先完成；`npm start` 執行 `dist/main.js`。Migration 是版本化資料更新，不是清空重建資料庫。不要在每次部署時刪表、刪資料庫或重設客人狀態。
+`npm run migrate` 執行編譯後的 `dist/migrate.js`，因此 build 必須先完成；`npm start` 執行 `dist/main.js`，也會在監聽連接埠前自動執行 migration，所以手動服務的 Pre-deploy 留空不等於漏做更新。Migration 是版本化資料更新，不是清空重建資料庫。不要在每次部署時刪表、刪資料庫或重設客人狀態。
 
 正式資料庫連線必須啟用 TLS 並驗證憑證與主機名稱，internal URL 本身不保證這些條件。依供應商目前的連線要求選擇支援驗證的端點，必要時使用外部端點；若出現憑證錯誤，檢查主機名稱、CA 信任與官方連線方式。請勿設定 `rejectUnauthorized: false`、停用 TLS 驗證或把正式資料搬到本機 demo 來繞過問題。尚未驗證真實資料庫連線前，不視為正式設定完成。
 
@@ -201,5 +201,27 @@ npm run build
 | 店主沒有通知 | 店主是否加好友、ID 與 channel 範圍是否正確、是否封鎖、推播額度、通知工作的失敗／未知狀態 |
 | AI 未啟用 | 知識是否已確認、`RESPONSE_MODE=ai`、金鑰與模型權限；固定模式不會呼叫 AI |
 | 重啟後 demo／正式資料不見 | 是否用了不同資料目錄或不同資料庫；正式服務不可使用 `.local/demo` |
+
+## 10. 啟動失敗的安全診斷
+
+`732a51f` 的啟動錯誤只顯示通用中文訊息，無法據此分辨設定、知識檔、TLS、DNS 或資料庫認證。本輪新增的診斷版先留在本地；需另經授權上傳並由本人重新部署後，才會在日誌出現一行 `event: "startup_failed"` 的 JSON。
+
+該紀錄只含固定的 `stage`（啟動階段）、白名單 `code`（安全錯誤分類），必要時加上 `fields`（有問題的設定名稱）。不含設定值、URL、連線字串、原始錯誤訊息、stack、cause 或外部服務內容。提供這一行即可協助定位，仍不要貼環境設定頁或完整連線字串。
+
+階段分為 `environment`（載入本機環境檔）、`configuration`（檢查設定）、`knowledge`（讀指南）、`facts`（讀取與檢查店務事實）、`database_configuration`（檢查資料庫 URL／TLS 選項）、`database_migration`（連線並更新資料結構）、`clients`（建立外部服務客戶端）、`runtime`（初始化資料庫工作並監聽）。其中 `database_migration` 也包含取得資料庫連線；不能只憑這個階段就認定是 SQL 更新出錯。
+
+| 安全代碼 | 可以確認的範圍 |
+| --- | --- |
+| `CONFIG_MISSING`／`CONFIG_INVALID` | 先檢查 `fields` 列出的必要欄位或格式；只核對名稱，不傳設定值 |
+| `DB_URL_INVALID`／`DB_TLS_POLICY_INVALID` | 資料庫網址格式或 TLS 選項在連線前被拒絕；不代表資料庫已被連上 |
+| `ENOENT`／`EACCES` | 配合階段辨識本地啟動檔案不存在或無權讀取，不輸出檔案原文 |
+| `FACTS_JSON_INVALID`／`FACTS_SCHEMA_INVALID` | 店務 facts 檔案的 JSON 或結構不符合格式 |
+| `ENOTFOUND`／`EAI_AGAIN` | 資料庫等網路主機名稱解析失敗；不輸出實際主機名 |
+| `ERR_TLS_CERT_ALTNAME_INVALID` 等允許的 TLS 代碼 | 憑證或主機名稱驗證失敗，依分類查核；不可停用驗證 |
+| `28P01`／`28000` | 資料庫認證被拒絕；不要貼帳號、密碼或完整 URL |
+| `EADDRINUSE`／`EACCES` | 配合 runtime 階段查核監聽連接埠或存取權限 |
+| `UNKNOWN` | 沒有可安全採用的已知分類；仍不能猜測根因，也不會輸出原始例外 |
+
+建置成功不等於服務已啟動；`event: "started"` 表示主程式已完成其啟動流程，仍需驗證 `/readyz`。即使 `/readyz` 成功，也不代表 LINE 憑證、真實收發或手機通知已驗收。
 
 官方參考：[LINE webhook](https://developers.line.biz/en/docs/messaging-api/receiving-messages/)、[Render 部署設定](https://render.com/docs/blueprint-spec)、[Render PostgreSQL](https://render.com/docs/postgresql)、[OpenAI API](https://platform.openai.com/docs/)。請以當時官方畫面與文件核對方案、權限及限制；上述參考連結不代表本次已成功讀取所有頁面。

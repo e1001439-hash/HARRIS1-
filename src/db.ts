@@ -2,16 +2,17 @@ import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { Pool, type PoolConfig } from 'pg';
 import type { Database } from './types.js';
+import { SafeDiagnosticError, safeDatabaseFailure } from './diagnostics.js';
 
 /** URL TLS flags can override pg's ssl object, so reject weaker modes first. */
 export function postgresOptions(connectionString: string): PoolConfig {
   let url: URL;
   try { url = new URL(connectionString); }
-  catch { throw new Error('Database URL must be a valid PostgreSQL TLS connection URL'); }
-  if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new Error('Database URL must use PostgreSQL with TLS');
+  catch { throw new SafeDiagnosticError('DB_URL_INVALID'); }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol)) throw new SafeDiagnosticError('DB_URL_INVALID');
   for (const [key, value] of url.searchParams) {
     if (!key.toLowerCase().startsWith('ssl')) continue;
-    if (key !== 'sslmode' || value !== 'verify-full') throw new Error('Database TLS settings must require certificate and hostname verification');
+    if (key !== 'sslmode' || value !== 'verify-full') throw new SafeDiagnosticError('DB_TLS_POLICY_INVALID');
   }
   url.searchParams.delete('sslmode');
   return { connectionString: url.toString(), ssl: { rejectUnauthorized: true } };
@@ -26,17 +27,17 @@ export class PgDatabase implements Database {
     try {
       const result = await this.pool.query(sql, values);
       return { rows: result.rows as T[], rowCount: result.rowCount };
-    } catch { throw new Error('Database operation failed'); }
+    } catch (error) { throw safeDatabaseFailure(error); }
   }
 
   async transaction<T>(fn: (db: Database) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect().catch(() => { throw new Error('Database connection failed'); });
+    const client = await this.pool.connect().catch(error => { throw safeDatabaseFailure(error); });
     const scoped: Database = {
       async query<R>(sql: string, values?: unknown[]) {
         try {
           const result = await client.query(sql, values);
           return { rows: result.rows as R[], rowCount: result.rowCount };
-        } catch { throw new Error('Database operation failed'); }
+        } catch (error) { throw safeDatabaseFailure(error); }
       },
       transaction: fn => fn(scoped),
       async close() {},
