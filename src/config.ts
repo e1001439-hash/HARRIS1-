@@ -22,7 +22,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const d = result.data;
   const testIds = d.TEST_LINE_USER_IDS.split(',').map(x => x.trim()).filter(Boolean);
   if (testIds.some(id => !userId.safeParse(id).success || id === d.OWNER_LINE_USER_ID)) throw new Error('TEST_LINE_USER_IDS 必須為有效且不同於店主的個人 LINE user ID');
-  if (d.BOT_MODE === 'test' && !testIds.length) throw new Error('測試模式必須設定 TEST_LINE_USER_IDS');
   if (d.RESPONSE_MODE === 'ai' && (!d.SALON_AI_API_KEY || !d.AI_MODEL)) throw new Error('AI 模式需要 SALON_AI_API_KEY 與 AI_MODEL');
   return { port: d.PORT, databaseUrl: d.DATABASE_URL, mode: d.BOT_MODE, responseMode: d.RESPONSE_MODE,
     lineSecret: d.LINE_CHANNEL_SECRET, lineToken: d.LINE_CHANNEL_ACCESS_TOKEN, ownerId: d.OWNER_LINE_USER_ID,

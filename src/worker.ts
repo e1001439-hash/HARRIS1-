@@ -5,8 +5,9 @@ import { handleOwnerCommand } from './commands.js';
 import { applyPolicy, extractRequest, humanFallback, humanRequired } from './policy.js';
 import type { SalonFacts } from './knowledge.js';
 import { NotificationWorker } from './notification-worker.js';
+import { isPairingCommand, type PairingService } from './pairing.js';
 
-interface Options { store: Store; config: Config; line: LineClient; ai: AiClient; knowledge: string; facts?: SalonFacts; lane?: 'owner' | 'customer'; onNotificationIssue?: (issue: Record<string, unknown>) => void }
+interface Options { store: Store; config: Config; line: LineClient; ai: AiClient; knowledge: string; facts?: SalonFacts; lane?: 'owner' | 'customer'; onNotificationIssue?: (issue: Record<string, unknown>) => void; pairing?: PairingService }
 async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('deadline exceeded')), ms); })]); }
@@ -35,18 +36,19 @@ export class Worker {
     const { store, config, line, ai, knowledge } = this.options;
     const isOwner = job.userId === config.ownerId;
     const text = job.event.message?.text ?? '';
+    const privateSetup = isOwner && isPairingCommand(text);
     const handoff = !isOwner && (job.manualHandoff === true || (await store.getSession(job.userId)).handoff);
     let result: AiResult;
     let outcome: Outcome;
-    if (!isOwner && config.mode === 'test' && !config.testUserIds.includes(job.userId)) {
+    if (!isOwner && config.mode === 'test' && !config.testUserIds.includes(job.userId) && !await this.options.pairing?.isTester(job.userId)) {
       await store.finishEvent(job, { ...humanFallback('', '測試模式略過非測試帳號'), reply: '', delivery: 'not_sent', skipTask: true }, config.ownerId);
       return;
     }
     if (job.previouslySending || job.attempts >= 3) {
-      outcome = { ...humanFallback(text, '上次處理中斷，請檢查是否已回覆，避免重複傳送'), reply: '', delivery: job.previouslySending ? 'unknown' : 'not_sent', skipTask: isOwner, preserveHandoff: handoff };
+      outcome = { ...humanFallback(text, '上次處理中斷，請檢查是否已回覆，避免重複傳送'), reply: '', delivery: job.previouslySending ? 'unknown' : 'not_sent', skipTask: isOwner, preserveHandoff: handoff, privateSetup };
       await store.finishEvent(job, outcome, config.ownerId); return;
     }
-    if (isOwner) result = { reply: await handleOwnerCommand(text, store), summary: '店主管理操作', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
+    if (isOwner) result = { reply: await handleOwnerCommand(text, store, this.options.pairing, job), summary: '店主管理操作', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
     else if (!await store.isLatestEvent(job)) {
       outcome = { ...humanFallback(text, '本則為較早訊息，已由後續需求接續'), reply: '', needsHuman: false, delivery: 'not_sent', preserveHandoff: true };
       await store.finishEvent(job, outcome, config.ownerId); return;
@@ -60,7 +62,7 @@ export class Worker {
       }
       catch { result = humanFallback(text, 'AI 無法產生可靠回覆，請本人確認'); }
     }
-    outcome = { ...result, delivery: 'not_sent', skipTask: isOwner };
+    outcome = { ...result, delivery: 'not_sent', skipTask: isOwner, privateSetup };
     if (handoff) {
       outcome = { ...outcome, reply: '', needsHuman: true, preserveHandoff: true, nextAction: '人工接手中，請本人查看本則補充／修改；時段僅為需求，尚待確認。' };
       await store.finishEvent(job, outcome, config.ownerId); return;

@@ -42,7 +42,7 @@ test('migrations initialize durable event, session, task and outbox tables', asy
       assert.ok(names.includes(expected), `${expected} must survive a process restart`);
     }
     await Promise.all([migrate(db), migrate(db)]);
-    assert.deepEqual((await db.query<{version:number}>('SELECT version FROM schema_migrations ORDER BY version')).rows.map(row => row.version), [1, 2, 3]);
+    assert.deepEqual((await db.query<{version:number}>('SELECT version FROM schema_migrations ORDER BY version')).rows.map(row => row.version), [1, 2, 3, 4]);
   } finally { await db.close(); }
 });
 

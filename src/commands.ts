@@ -1,6 +1,9 @@
 import type { Store } from './store.js';
+import { isPairingCommand, type PairingService } from './pairing.js';
+import type { EventJob } from './types.js';
 const help = '店主管理指令：\n/pending 查看待辦\n/take C000001 接手\n/resume C000001 恢復自動回覆\n/done T000001 完成待辦\n/confirm T000001 本人已核實預約\n/feedback T000001 正確回法\n/help 顯示說明';
-export async function handleOwnerCommand(text: string, store: Store): Promise<string> {
+export async function handleOwnerCommand(text: string, store: Store, pairing?: PairingService, job?: EventJob): Promise<string> {
+  if (isPairingCommand(text)) return pairing && job ? pairing.command(text, job) : '測試配對尚未在此執行流程初始化。';
   const [command, ref, ...rest] = text.trim().split(/\s+/);
   if (command === '/pending') {
     if (ref && !/^T\d+$/.test(ref)) return help;
@@ -25,5 +28,5 @@ export async function handleOwnerCommand(text: string, store: Store): Promise<st
     if (command === '/confirm') return await store.confirmTask(ref) ? `${ref} 已記錄為「店主本人確認」；不是平台自動核實。` : '找不到可確認的預約待辦。';
     if (command === '/feedback' && rest.length) return await store.addFeedback(ref, rest.join(' ').slice(0, 2000)) ? '已記錄回饋；審閱並修改規則後才會套用。' : '找不到待辦。';
   }
-  return help;
+  return `${help}\n/配對 開啟測試配對\n/配對狀態 查看候選\n/取消配對 取消未確認窗口`;
 }

@@ -1,8 +1,8 @@
 # 設定與上線指南
 
-本指南從本機模擬到少量真人測試，再到正式啟用。儲存庫中的部署檔不代表已建立雲端資源；目前沒有真實 LINE／AI 端到端驗收或正式部署的證據。建立付費服務前，請先確認帳號、方案、費用與備份需求。
+本指南從本機模擬到少量真人測試，再到正式啟用。儲存庫中的部署檔不代表已部署 Web Service；目前沒有真實 LINE／AI 端到端驗收的證據。建立付費服務前，需先取得本人授權並由本人在平台畫面確認方案、費用與備份需求。
 
-2026-10-25：本次僅完成程式補強及本地驗證，以下真實部署、憑證及 LINE 設定步驟仍暫停。使用者已回報 Render 資料庫 Available，但正式連線與收發尚未驗收。
+2026-10-25：本輪授權僅限安全測試配對的程式與本地假值測試。實際部署、配對人選與真實發訊尚未授權，以下相關操作仍暫停。目前只有 `harris-line-db` 資料庫顯示 Available，尚無 Web Service，資料庫 TLS 與 LINE 收發尚未驗收。
 
 ## 1. 先試用本機 demo
 
@@ -37,40 +37,36 @@ Demo 的成功只證明本機流程；真實 LINE、AI、資料庫 TLS 與 Rende
 
 ## 2. 準備安全的環境設定
 
-正式服務需要 LINE 官方帳號及 Messaging API channel、店主個人 LINE、另一個測試用個人 LINE，以及持久化 PostgreSQL。AI 模式另外需要可用的 OpenAI API 帳號、金鑰與已確認可用的模型。
+初次啟動沿用既有 LINE 官方帳號及 Messaging API channel、店主個人 LINE 與持久化 PostgreSQL。先保留 `BOT_MODE=test`（只開放測試名單）與 `RESPONSE_MODE=fixed`（固定回覆），安全填入下表四個必填欄位即可，不必先知道測試者 ID，也不需要 AI 金鑰或模型。指定的另一位測試者可等真實測試取得授權後，再由店主配對並確認加入。AI 模式才另外需要可用的 OpenAI API 帳號、金鑰與已確認可用的模型。
 
 本機可以複製 `.env.example` 為 `.env` 再自行填入；程式會載入該檔案，已由執行環境提供的值優先。Render 則在服務的環境設定中輸入，不上傳 `.env`。`.env.example` 只有空欄與安全預設，不能直接當成正式設定使用。
 
-請勿在聊天、GitHub issue、程式碼或截圖中提供密鑰；也不要把整份環境變數或資料庫連線字串貼進日誌。若曾外洩，先在來源平台撤銷／重發，再更新部署環境。
+請勿在聊天、GitHub issue、程式碼或截圖中提供密鑰、配對碼、token 或含憑證的連線網址；也不要把整份環境變數或資料庫連線字串貼進日誌。配對文字只在店主與指定測試者之間私下傳遞。若曾外洩，先在來源平台撤銷／重發，再更新部署環境。
 
 | 名稱 | 如何設定 |
 | --- | --- |
 | `NODE_ENV` | Render 設為 `production`；本機可用 `development` |
 | `PORT` | Render 由平台提供；本機預設 3000 |
-| `DATABASE_URL` | PostgreSQL 連線字串；本機 demo 不需要 |
-| `LINE_CHANNEL_SECRET` | 該 Messaging API channel 的 secret，用來驗證 webhook |
-| `LINE_CHANNEL_ACCESS_TOKEN` | 該 channel 的有效 access token，用來回覆／通知 |
-| `OWNER_LINE_USER_ID` | 唯一店主的 LINE user ID，安全設定，不能讓客人自行註冊取得權限 |
-| `TEST_LINE_USER_IDS` | 測試客人的 user ID，多個以半形逗號分隔；測試客人須與店主不同 |
+| `DATABASE_URL` | **必填**，PostgreSQL 連線字串，需驗證 TLS；本機 demo 不需要 |
+| `LINE_CHANNEL_SECRET` | **必填**，LINE 簽章密鑰，用來驗證 webhook |
+| `LINE_CHANNEL_ACCESS_TOKEN` | **必填**，LINE 發訊憑證，用來回覆／通知 |
+| `OWNER_LINE_USER_ID` | **必填**，店主本人識別碼；由本人把 Harris channel 的 Your user ID 填入安全欄位，不能填 `@nsw7233k` |
+| `TEST_LINE_USER_IDS` | **選填**，手動靜態測試名單，可省略或留空；若填多個 user ID，以半形逗號分隔，且不可包含店主。也可改用店主確認的動態配對 |
 | `BOT_MODE` | 預設 `test`，只處理允許的測試客人；驗收完成才改 `live` |
 | `RESPONSE_MODE` | 預設 `fixed`，先測固定回覆；店務知識確認後可改 `ai` |
 | `SALON_AI_API_KEY` | 只在 `ai` 模式需要；放在安全環境設定 |
 | `AI_MODEL` | 只在 `ai` 模式需要；填入該 API 帳號已確認支援的模型名稱，不預填未核實型號 |
-| `KNOWLEDGE_PATH` | 預設 `knowledge/salon.md` |
+| `KNOWLEDGE_PATH` | 店務指南路徑，預設 `knowledge/salon.md`；儲存庫已附該檔與同資料夾的 `facts.json`，不是初啟動時新必填的人工輸入 |
 | `BOOKING_URL` | 預設 `https://g7.zoom-world.tw/Round2HairSalon/index.aspx` |
 | `PUBLIC_SITE_URL` | 預設 `https://harrishair.tw/` |
 
-正式啟動會拒絕缺少 LINE secret、token 或店主 ID 的設定；`test` 模式也必須有測試客人 ID。`ai` 模式缺少金鑰或模型時不能啟動。這些檢查不代表憑證已經過外部 API 驗證。
+啟動會拒絕缺少上述四個必填欄位的設定。`test` 模式允許測試名單空白，此時店主仍可使用管理與配對功能，一般未知客人不進接待流程。`ai` 模式缺少金鑰或模型時不能啟動；`fixed` 模式不需要它們。這些檢查不代表憑證已經過外部 API 驗證。
 
 ## 3. 設定 LINE 官方帳號與身分
 
-1. 用擁有管理權限的帳號進入 LINE Official Account Manager，為指定官方帳號啟用 Messaging API，並到對應的 LINE Developers channel 設定頁。
-2. 確認 channel 所屬帳號正確，取得 channel secret 與 access token，直接存到部署平台安全環境設定。
-3. 店主自己的個人 LINE 先加此官方帳號好友，且保持能接收其訊息。用 LINE Developers 顯示的本人 user ID，或經 channel 管理員授權的身分取得流程，確認 `OWNER_LINE_USER_ID`；不要填 LINE ID、顯示名稱或官方帳號的 basic ID。
-4. 準備另一個個人 LINE 測試帳號，加官方帳號好友，經管理員授權確認其在同一 provider／channel 範圍內的 user ID，再安全填入 `TEST_LINE_USER_IDS`。不要使用店主帳號代替客人測試；店主訊息會走管理流程。
-5. 未取得正確 ID 前保留測試限制。程式不提供「第一個傳註冊的人變管理員」流程；不要為了取得 ID 開放所有客人，也不要把完整 webhook 內容印到公開日誌。
+官方帳號 `@nsw7233k`、provider `harris841110` 與 channel `Harris` 的對應已確認。接續設定時，由本人把該 channel 頁面的 **Your user ID** 安全填入 Render 的 `OWNER_LINE_USER_ID`，這是店主個人身分，不是 `@nsw7233k`、顯示名稱或其他 LINE ID。LINE channel secret 與 access token 也只在安全環境設定中填入，不在本輪產生新正式憑證。
 
-LINE user ID 的取得方式與畫面會依管理員身分、provider 與 LINE 產品設定而異。若無法在現有管理介面確認測試者 ID，需由有權限的建置者依 [LINE 官方文件](https://developers.line.biz/en/docs/messaging-api/getting-user-ids/)完成安全取得；不要猜值。店主與測試客人應分別測試管理指令及一般訊息。
+店主需以自己的個人 LINE 加官方帳號好友，保持能接收其訊息。測試客人須是另一個個人 LINE 身分；店主永遠不兼任測試客人。初次設定可完全省略 `TEST_LINE_USER_IDS`，之後依第 5 節配對，不需請測試者登入開發者後台找 ID。不要先開放所有客人，或從已被丟棄的未知訊息找 ID；一般未知訊息不會為此保留。
 
 在正式啟用前，記下原有問候訊息、自動回應與人工客服設定。依測試範圍調整 Official Account Manager 的自動回應，避免同一客人同時收到平台自動回應與本程式回覆；確認保留人工回覆入口及停機時的處理方式。
 
@@ -78,17 +74,27 @@ LINE user ID 的取得方式與畫面會依管理員身分、provider 與 LINE �
 
 本專案建議一個付費常駐 Web Service 加一個付費持久化 PostgreSQL，放在相同區域。免費休眠服務不適合作為此正式客服流程。Render、LINE 訊息額度與 OpenAI API 分別計費，請以當時官方方案為準，不以本文件估算固定月費。
 
+目前 new config 頁面所選的 **US$7／月是 Web Service 選項，不是整套服務總費用**；資料庫與其他用量另計，當時實際費率仍由本人在 GUI 核對。已有 Available 的 `harris-line-db`，不要因此再建立另一個資料庫。以下順序僅供之後逐項取得授權後執行：
+
+1. 先經本人授權，在 GUI 確認費率與服務設定，並關閉自動部署。
+2. 再經本人授權，推送包含本輪修改的新本地 commit；本輪不推送或部署。
+3. 由本人安全填入四個必填欄位與下表常數；Root Directory 留空，使用儲存庫根目錄。
+4. 完成資料庫 TLS 與 migration，確認 Web Service `/readyz` 成功。
+5. LINE Verify 通過後，店主先測 `/help`，再依第 5 節開啟配對。
+6. 店主親自核對指定測試者後明確確認，再測一則一般訊息的固定回覆、店主通知、人工接手及重啟保留。
+
 `render.yaml` 只描述 Web Service，沒有資料庫方案代碼或自動建立資料庫的設定。本次讀取 Render 官方方案／Blueprint 文件遭雲端網路代理拒絕，無法核對目前 PostgreSQL 方案代碼；請在 Dashboard 依當時官方資訊選擇付費、持久化且符合備份需求的方案。請勿把「檔案已備妥」理解為已建立或付款。
 
 1. 確認要部署的 GitHub 儲存庫與分支，先通過 CI，再由有權限的人連接 Render。
-2. 在 Render Dashboard 手動建立付費 PostgreSQL。記下區域、支援版本、備份／時間點還原功能及保留期；完成一次還原測試後才存放正式客人資料。
+2. 沿用既有 `harris-line-db`，記下區域、支援版本、備份／時間點還原功能及保留期；完成一次還原測試後才存放正式客人資料。
 3. 在相同區域建立 Node Web Service。可手動輸入下表，或審閱後套用儲存庫的 Blueprint。Blueprint 使用付費 `starter` Web Service，但未預選區域；套用前，必須先在 `render.yaml` 的該 service 新增與資料庫完全相同的 `region`，代碼從當時 Render 官方資訊核對。若無法確認代碼，改用 Dashboard 手動建立並選擇相同區域，避免平台預設到別區。開始建立前核對當時方案及帳單。
 4. 選用支援 TLS 且可驗證憑證與主機名稱的 PostgreSQL 端點，將其連線字串安全填入 Web Service 的 `DATABASE_URL`。優先評估 internal connection string；若內部端點無法通過正式 TLS 驗證，改用供應商支援且能驗證的外部端點，並確認存取限制。不要把連線字串放進 Git。
-5. 依上一節補齊 LINE／店主／測試 ID。保留 `BOT_MODE=test`、`RESPONSE_MODE=fixed`。Blueprint 中 `sync: false` 的欄位由管理員提供，沒有內建密鑰；初次固定回覆部署不要求 AI 金鑰，之後啟用 AI 時再新增金鑰與模型設定。
+5. 補齊資料庫、LINE 簽章密鑰、LINE 發訊憑證與店主識別碼四個安全欄位。保留 `BOT_MODE=test`、`RESPONSE_MODE=fixed`。Blueprint 中僅這四欄為 `sync: false`，由本人安全提供；不要求預先填入測試者 ID 或 AI 金鑰／模型，店務兩個檔案已隨儲存庫附上。
 
 | Render 欄位 | 設定 |
 | --- | --- |
 | Runtime | Node，使用 `.node-version` 的 24 LTS |
+| Root Directory | 留空，使用儲存庫根目錄 |
 | Build command | `npm ci --include=dev && npm run build` |
 | Pre-deploy command | `npm run migrate` |
 | Start command | `npm start` |
@@ -101,21 +107,32 @@ LINE user ID 的取得方式與畫面會依管理員身分、provider 與 LINE �
 
 部署後先確認 `/healthz`（程式存活）及 `/readyz`（資料庫可用）均成功；只有存活不代表資料庫正常。此時仍在測試模式，尚未正式開放客人。
 
-## 5. 驗證真實 webhook 與固定回覆
+## 5. 驗證 webhook、配對與固定回覆
 
-1. 從 Render 取得服務的正式 HTTPS 網域。在 LINE Developers 的 Webhook URL 填入該網域加上 `/webhook`，例如 `https://你的服務網域/webhook`。
+以下真實發訊與配對需另經本人授權。服務完成資料庫 TLS／就緒檢查後，再依序操作：
+
+1. 從 Render 取得服務的正式 HTTPS 網域。在 LINE Developers 的 Webhook URL（LINE 接收訊息的入口）填入該網域加上 `/webhook`，例如 `https://你的服務網域/webhook`。
 2. 使用 LINE 的 Verify 功能。程式支援已簽章、`events: []` 的空驗證請求；成功只證明此項檢查，不代表客人回覆或店主通知已通過。
 3. 啟用 webhook，並確認 LINE 的 webhook 重送設定符合需求。程式先驗證原始內容簽章，再把事件與工作寫入資料庫，成功持久化後才回 HTTP 200。
-4. 由 `TEST_LINE_USER_IDS` 中的測試客人傳一則文字，確認實際收到固定回覆，店主實際收到原文初步通知與待辦。AI 理解模式完成後另有同一編號的整理更新；固定模式不抽取時段／項目。檢查通知內時間、客人代號、階段、需求、預約狀態與回覆送達狀態。
-5. 用未列入名單的測試帳號驗證測試限制：不應產生 AI 請求、客人回覆或私人通知內容。群組與多人聊天室不在本版服務範圍。
-6. 店主測試 `/pending`、`/take`、`/resume`、`/done` 與回饋。接手期間由測試客人再傳訊，應保存與通知店主，且不自動回答。
-7. 重啟 Web Service，確認未結案待辦與接手狀態仍保留；再完成一輪測試。確認 LINE 送出失敗與結果未知的狀態能辨識，避免把未知狀態當成成功。
+4. 店主以個人 LINE 對官方帳號傳 `/help`，確認本人可收到管理回覆，再傳 `/配對`。只有店主能開啟配對；該功能僅在 `BOT_MODE=test` 開放。
+5. 店主私下收到五分鐘內有效、難猜的一次性文字「測試配對 <碼>」，只把完整文字私下交給指定的另一位 LINE 使用者，請對方傳給官方帳號。不要公開、貼到本聊天或日誌，也不要拿店主自己當測試客人。
+6. 對方送出配對文字後，程式只留下待確認候選：不自動授權、不回覆該人、不呼叫 AI，配對碼與候選原文不進一般事件。店主傳 `/配對狀態`，查看 P 代號與到達時間，**向指定的人核對**後，再傳 `/確認配對 P000001`（換成實際代號）。無法核對時使用 `/取消配對`，不要確認。
+7. 確認完成後，請已授權的測試者再送**下一則一般訊息**，驗證實際收到固定回覆，店主實際收到原文初步通知與待辦。AI 理解模式完成後另有同一編號的整理更新；固定模式不抽取時段／項目。檢查通知內時間、客人代號、階段、需求、預約狀態與回覆送達狀態。配對文字本身不會補做一般接待。
+8. 由已授權的測試人員驗證未配對身分與群組的限制：一般未知身分不應產生 AI 請求、客人回覆或私人通知內容；群組與多人聊天室不在本版服務範圍。
+9. 店主測試 `/pending`、`/take`、`/resume`、`/done` 與回饋。接手期間由測試客人再傳訊，應保存與通知店主，且不自動回答。
+10. 重啟 Web Service，確認已配對授權、未結案待辦與接手狀態仍保留；再完成一輪測試。確認 LINE 送出失敗與結果未知的狀態能辨識，避免把未知狀態當成成功。
+
+`/取消配對` 只關閉尚未確認的窗口，不移除已核准測試者。`/移除測試 P000001` 只撤銷該 P 代號的動態配對授權；若同一人也在 `TEST_LINE_USER_IDS` 手動靜態名單，需由本人從 Render 安全環境設定另行移除並套用。撤銷會阻止後續或尚未發出的接待；**已開始的 AI 請求或外送無法撤回**。
+
+窗口與待確認候選在開啟五分鐘後失效，逾期不能確認，候選識別會清除；取消或確認後也會清除候選識別。已關閉窗口的精簡紀錄在 24 小時後清理。核准的動態授權保存在資料庫，重啟後保留至移除；變更 `LINE_CHANNEL_SECRET`（channel 簽章密鑰）或 `OWNER_LINE_USER_ID`（店主識別碼）會隔離舊授權，需要重新配對。店主配對管理的回覆載荷與結果內容會清除，避免配對碼進入持久紀錄。
+
+「測試配對」（後接空白或結尾）是保留的配對語法；含此語法的訊息不進一般客服或 AI，正式模式也不當普通聊天處理。這是避免回傳或保存配對碼的保密設計。
 
 真實 LINE 收發與推播額度、封鎖、channel 設定都會影響結果。店主沒有收到通知時，不要只憑 HTTP 200 就視為成功；檢查私有資料庫的工作／送達狀態與不含內文的操作日誌。通知失敗不應重送客人回覆，結果未知時也不要盲目重發。
 
 ## 6. 確認店務知識，再啟用 AI
 
-由店主審閱 `knowledge/salon.md`，補齊已確認的服務、價格、地址、營業時間、預約規則及去識別化語氣範例。未知項目保持「待確認」。不要加入客人姓名、電話、LINE ID、完整聊天紀錄、API 金鑰或資料庫備份。
+儲存庫已附 `knowledge/salon.md` 與 `knowledge/facts.json`，初次 `test/fixed` 啟動不需要再人工提供新檔案。啟用 AI 前，由店主審閱 `knowledge/salon.md`，補齊已確認的服務、價格、地址、營業時間、預約規則及去識別化語氣範例。未知項目保持「待確認」。不要加入客人姓名、電話、LINE ID、完整聊天紀錄、API 金鑰或資料庫備份。
 
 同時維護與 `salon.md` 放在同一資料夾的 `facts.json`。這是實際對客人回覆的資料來源：`address` 與 `hours` 填已確認文字、`services` 填 `{"name":"服務名稱","price":"已確認的價格說明"}`；未知值保持 `null`，不要補猜。`faqs` 每筆格式為 `{"keywords":["客人問題關鍵詞"],"answer":"你確認過的回法"}`，關鍵詞至少兩字；避免太廣泛。`voice.greeting` 與 `voice.handoff` 可調整成你的語氣。審閱完才把 `approved` 改為 `true`。未核准時不會使用其中的店務事實；AI 自由生成的回覆不會直接發給客人。沒有對應資料的詢問會留下待辦並轉交本人，之後可持續新增常見問答。
 
@@ -132,6 +149,11 @@ LINE user ID 的取得方式與畫面會依管理員身分、provider 與 LINE �
 | 指令 | 意思 |
 | --- | --- |
 | `/help` | 顯示操作說明 |
+| `/配對` | 僅測試模式：開啟五分鐘窗口，私下收到一次性測試文字 |
+| `/配對狀態` | 查看候選 P 代號、到達時間與已配對代號 |
+| `/確認配對 P000001` | 向指定的人核對後，明確加入測試名單 |
+| `/取消配對` | 取消尚未確認窗口，不影響既有授權 |
+| `/移除測試 P000001` | 撤銷動態配對授權；手動靜態名單需另行移除 |
 | `/pending` | 列出待辦與客人代號 |
 | `/pending T000001` | 依上一頁最後提供的代號查看較舊待辦 |
 | `/take C000001` | 接手該客人；之後新訊息交由店主處理 |
@@ -171,10 +193,11 @@ npm run build
 
 | 現象 | 先檢查 |
 | --- | --- |
-| 程式拒絕啟動 | 必填環境變數、`BOT_MODE`／`RESPONSE_MODE`、測試 ID 是否與店主不同；修改後重啟 |
+| 程式拒絕啟動 | 四個必填環境變數、`BOT_MODE`／`RESPONSE_MODE`；測試名單可空，若手動填入則不可包含店主；修改後重啟 |
 | LINE Verify 失敗 | HTTPS 網域、`/webhook` 路徑、服務健康、channel secret 是否屬於同一 channel；簽章需要原始 body |
 | 存活但未就緒 | `DATABASE_URL`、migration、資料庫存取與 TLS；不要停用驗證 |
-| 測試客人沒有回覆 | allowlist 的 user ID、是否正在人工接手、訊息是否為一對一、LINE token／額度及送達狀態 |
+| 測試客人沒有回覆 | 店主是否已確認配對或安全填入手動名單、是否為確認後的一般訊息、人工接手狀態、是否一對一、LINE token／額度及送達狀態；配對文字本身不回客人 |
+| 配對沒有成功 | 是否仍在 test 模式及五分鐘內、是否由另一人傳正確一次性文字、店主是否核對 P 代號並明確確認；過期／取消後重新 `/配對` |
 | 店主沒有通知 | 店主是否加好友、ID 與 channel 範圍是否正確、是否封鎖、推播額度、通知工作的失敗／未知狀態 |
 | AI 未啟用 | 知識是否已確認、`RESPONSE_MODE=ai`、金鑰與模型權限；固定模式不會呼叫 AI |
 | 重啟後 demo／正式資料不見 | 是否用了不同資料目錄或不同資料庫；正式服務不可使用 `.local/demo` |

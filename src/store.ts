@@ -133,7 +133,7 @@ export class Store {
         AND status = 'processing' AND lease_token = $3 AND lease_until > clock_timestamp() FOR UPDATE`, [job.id, job.userId, job.leaseToken]);
       const row = locked.rows[0];
       if (!row) return;
-      const redacted = row.text_removed_at !== null || row.expired === true;
+      const redacted = row.text_removed_at !== null || row.expired === true || outcome.privateSetup === true;
       const safeOutcome: Outcome = redacted ? { ...outcome, reply: '', summary: REDACTED, service: null, requestedTime: null, nextAction: REDACTED } : outcome;
       await tx.query(`UPDATE events SET status = 'done', outcome = $2::jsonb, delivery = $3,
         completed_at = now(), lease_until = NULL, lease_token = NULL,

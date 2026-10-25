@@ -22,7 +22,7 @@ export interface EventJob {
   manualHandoff?: boolean;
   handoffRevision?: number;
 }
-export interface Outcome extends AiResult { delivery: Delivery; skipTask?: boolean; preserveHandoff?: boolean }
+export interface Outcome extends AiResult { delivery: Delivery; skipTask?: boolean; preserveHandoff?: boolean; privateSetup?: boolean }
 export interface Session { userId: string; customerRef: string; handoff: boolean }
 export interface Task {
   id: string; customerRef: string; status: string; bookingStatus: string; summary: string;

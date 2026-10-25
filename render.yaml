@@ -1,5 +1,6 @@
 # 審閱後才由管理員在 Render 套用；此檔案本身不會建立付費資源。
-# 先手動建立同區域的付費持久化 PostgreSQL，確認備份與方案。
+# 目前僅 harris-line-db 顯示 Available，尚無 Web Service；此檔不代表已部署。
+# 先取得部署授權，再確認既有資料庫的區域、備份與當時方案。
 # 目前無法核對資料庫方案代碼，因此此 Blueprint 不自動建立資料庫。
 # 套用前先在此 service 新增與資料庫相同的 region；請用平台提供的代碼。
 # 未確認 region 代碼時，依 docs/SETUP.md 手動建立同區域 Web Service。
@@ -24,8 +25,8 @@ services:
         sync: false
       - key: OWNER_LINE_USER_ID
         sync: false
-      - key: TEST_LINE_USER_IDS
-        sync: false
+      # TEST_LINE_USER_IDS 是選填的手動靜態測試名單，可省略或留空。
+      # 初啟動不必先知道測試者 ID，之後由店主配對並明確確認。
       - key: BOT_MODE
         value: test
       - key: RESPONSE_MODE

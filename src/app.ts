@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { z } from 'zod';
 import { validSignature } from './signature.js';
 import type { Config, LineEvent } from './types.js';
+import { isPairingCommand, isPairingText, safeOwnerPairingText, type PairingService } from './pairing.js';
 
 const eventSchema = z.object({
   type: z.string(), webhookEventId: z.string().min(1).max(200), timestamp: z.number().int().nonnegative(),
@@ -10,7 +11,7 @@ const eventSchema = z.object({
 }).refine(e => e.type !== 'message' || !!e.message && (e.message.type !== 'text' || typeof e.message.text === 'string'));
 const bodySchema = z.object({ events: z.array(eventSchema).max(100) });
 
-export function createApp({ config, store }: { config: Config; store: { ingest(events: LineEvent[], ownerId?: string): Promise<void>; ping(): Promise<void> } }) {
+export function createApp({ config, store, pairing }: { config: Config; store: { ingest(events: LineEvent[], ownerId?: string): Promise<void>; ping(): Promise<void> }; pairing?: PairingService }) {
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   app.removeContentTypeParser('application/json');
   app.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_req, body, done) => done(null, body));
@@ -22,9 +23,23 @@ export function createApp({ config, store }: { config: Config; store: { ingest(e
     try { payload = JSON.parse(req.body.toString('utf8')); } catch { return res.code(400).send({ error: 'invalid JSON' }); }
     const parsed = bodySchema.safeParse(payload);
     if (!parsed.success) return res.code(400).send({ error: 'invalid events' });
-    const accepted = parsed.data.events.filter(e => e.type === 'message' && e.source.type === 'user' && e.source.userId &&
-      (e.source.userId === config.ownerId || config.mode === 'live' || config.testUserIds.includes(e.source.userId)));
-    try { if (accepted.length) await store.ingest(accepted, config.ownerId); } catch { return res.code(503).send({ error: 'storage unavailable' }); }
+    try {
+      const accepted: LineEvent[] = [];
+      for (const event of parsed.data.events) {
+        const userId = event.source.userId;
+        if (event.type !== 'message' || event.source.type !== 'user' || !userId) continue;
+        const text = event.message?.text ?? '';
+        if (userId === config.ownerId) {
+          accepted.push(event.message?.type === 'text' ? { ...event, message: { ...event.message, text: safeOwnerPairingText(text) } } : event);
+          continue;
+        }
+        // Reserved setup traffic is never normal customer content, including
+        // wrong/replayed phrases and attempts from an already approved tester.
+        if (isPairingText(text) || isPairingCommand(text)) { if (isPairingText(text)) await pairing?.receive(event); continue; }
+        if (config.mode === 'live' || config.testUserIds.includes(userId) || await pairing?.isTester(userId)) accepted.push(event);
+      }
+      if (accepted.length) await store.ingest(accepted, config.ownerId);
+    } catch { return res.code(503).send({ error: 'storage unavailable' }); }
     return { ok: true };
   });
   return app;
