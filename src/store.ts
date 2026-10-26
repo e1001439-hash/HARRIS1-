@@ -126,6 +126,25 @@ export class Store {
     });
   }
 
+  async reserveOwnerPreview(job: EventJob): Promise<'allowed' | 'duplicate' | 'rate_limited' | 'expired'> {
+    return this.db.transaction(async tx => {
+      // Keep the lock and the following reads in separate statements so a
+      // concurrent reservation is visible after waiting for this owner's lock.
+      await tx.query('SELECT user_id FROM sessions WHERE user_id = $1 FOR UPDATE', [job.userId]);
+      const active = await tx.query<{ owner_preview_started_at: Date | null }>(`SELECT owner_preview_started_at FROM events
+        WHERE id=$1 AND user_id=$2 AND status='processing' AND attempts=1 AND lease_token=$3
+          AND lease_until > clock_timestamp() AND text_removed_at IS NULL FOR UPDATE`, [job.id, job.userId, job.leaseToken]);
+      if (!active.rows[0]) return 'expired';
+      if (active.rows[0].owner_preview_started_at !== null) return 'duplicate';
+      const budget = await tx.query<{ total: number; recent: boolean }>(`SELECT count(*)::int AS total,
+        COALESCE(bool_or(owner_preview_started_at > clock_timestamp()-interval '10 seconds'), false) AS recent
+        FROM events WHERE user_id=$1 AND owner_preview_started_at > clock_timestamp()-interval '24 hours'`, [job.userId]);
+      if (budget.rows[0]!.recent || budget.rows[0]!.total >= 20) return 'rate_limited';
+      await tx.query('UPDATE events SET owner_preview_started_at=clock_timestamp() WHERE id=$1', [job.id]);
+      return 'allowed';
+    });
+  }
+
   async finishEvent(job: EventJob, outcome: Outcome, ownerId: string): Promise<void> {
     await this.db.transaction(async tx => {
       await tx.query('SELECT user_id FROM sessions WHERE user_id = $1 FOR UPDATE', [job.userId]);

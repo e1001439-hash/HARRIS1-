@@ -2,7 +2,9 @@ import type { Store } from './store.js';
 import type { AiClient, AiResult, Config, EventJob, LineClient, Outcome } from './types.js';
 import { DeliveryError } from './clients/line.js';
 import { handleOwnerCommand } from './commands.js';
-import { applyPolicy, extractRequest, humanFallback, humanRequired } from './policy.js';
+import { humanFallback, humanRequired } from './policy.js';
+import { analyzeMessage } from './analysis.js';
+import { handleOwnerPreview, isPreviewCommand } from './preview.js';
 import type { SalonFacts } from './knowledge.js';
 import { NotificationWorker } from './notification-worker.js';
 import { isPairingCommand, type PairingService } from './pairing.js';
@@ -36,7 +38,8 @@ export class Worker {
     const { store, config, line, ai, knowledge } = this.options;
     const isOwner = job.userId === config.ownerId;
     const text = job.event.message?.text ?? '';
-    const privateSetup = isOwner && isPairingCommand(text);
+    const preview = isOwner && isPreviewCommand(text);
+    const privateSetup = isOwner && (isPairingCommand(text) || preview);
     const handoff = !isOwner && (job.manualHandoff === true || (await store.getSession(job.userId)).handoff);
     let result: AiResult;
     let outcome: Outcome;
@@ -48,7 +51,7 @@ export class Worker {
       outcome = { ...humanFallback(text, '上次處理中斷，請檢查是否已回覆，避免重複傳送'), reply: '', delivery: job.previouslySending ? 'unknown' : 'not_sent', skipTask: isOwner, preserveHandoff: handoff, privateSetup };
       await store.finishEvent(job, outcome, config.ownerId); return;
     }
-    if (isOwner) result = { reply: await handleOwnerCommand(text, store, this.options.pairing, job), summary: '店主管理操作', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
+    if (isOwner) result = { reply: preview ? await handleOwnerPreview(this.options, job) : await handleOwnerCommand(text, store, this.options.pairing, job), summary: '店主管理操作', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
     else if (!await store.isLatestEvent(job)) {
       outcome = { ...humanFallback(text, '本則為較早訊息，已由後續需求接續'), reply: '', needsHuman: false, delivery: 'not_sent', preserveHandoff: true };
       await store.finishEvent(job, outcome, config.ownerId); return;
@@ -57,12 +60,12 @@ export class Worker {
     else {
       try {
         const history = await store.history(job.userId);
-        const value = await within(ai.generate({ text, history, handoff, knowledge: `${knowledge}\n已審閱的結構化資料：${this.options.facts?.approved ? JSON.stringify(this.options.facts) : '尚未確認'}`, receivedAt: job.receivedAt.toISOString() }), 19000);
-        result = handoff ? extractRequest(value, text, history) : applyPolicy(value, text, knowledge, config.bookingUrl, this.options.facts, history);
+        result = await analyzeMessage({ ai, text, history, handoff, knowledge, facts: this.options.facts, bookingUrl: config.bookingUrl, receivedAt: job.receivedAt.toISOString() });
       }
       catch { result = humanFallback(text, 'AI 無法產生可靠回覆，請本人確認'); }
     }
     outcome = { ...result, delivery: 'not_sent', skipTask: isOwner, privateSetup };
+    if (preview && !result.reply) { await store.finishEvent(job, outcome, config.ownerId); return; }
     if (handoff) {
       outcome = { ...outcome, reply: '', needsHuman: true, preserveHandoff: true, nextAction: '人工接手中，請本人查看本則補充／修改；時段僅為需求，尚待確認。' };
       await store.finishEvent(job, outcome, config.ownerId); return;

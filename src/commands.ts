@@ -1,7 +1,7 @@
 import type { Store } from './store.js';
 import { isPairingCommand, type PairingService } from './pairing.js';
 import type { EventJob } from './types.js';
-const help = '店主管理指令：\n/pending 查看待辦\n/take C000001 接手\n/resume C000001 恢復自動回覆\n/done T000001 完成待辦\n/confirm T000001 本人已核實預約\n/feedback T000001 正確回法\n/help 顯示說明';
+const help = '店主管理指令：\n/pending 查看待辦\n/take C000001 接手\n/resume C000001 恢復自動回覆\n/done T000001 完成待辦\n/confirm T000001 本人已核實預約\n/feedback T000001 正確回法\n/preview 問題（或 /預覽 問題）預覽回覆，僅限測試模式並啟用 AI 時使用\n/help 顯示說明';
 export async function handleOwnerCommand(text: string, store: Store, pairing?: PairingService, job?: EventJob): Promise<string> {
   if (isPairingCommand(text)) return pairing && job ? pairing.command(text, job) : '測試配對尚未在此執行流程初始化。';
   const [command, ref, ...rest] = text.trim().split(/\s+/);

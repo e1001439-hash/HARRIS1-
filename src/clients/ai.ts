@@ -3,6 +3,37 @@ import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
 import type { AiClient, AiInput, AiResult } from '../types.js';
 
+const failureCodes = ['AUTHENTICATION', 'PERMISSION', 'QUOTA', 'RATE_LIMIT', 'MODEL_UNAVAILABLE', 'TIMEOUT', 'INCOMPLETE', 'INVALID_RESPONSE', 'UNAVAILABLE'] as const;
+export type AiFailureCode = typeof failureCodes[number];
+const safeFailures = new WeakMap<object, AiFailureCode>();
+export class AiUnavailableError extends Error {
+  public readonly code: AiFailureCode;
+  constructor(code: AiFailureCode) {
+    super('AI response unavailable');
+    this.code = failureCodes.includes(code) ? code : 'UNAVAILABLE';
+    safeFailures.set(this, this.code);
+  }
+}
+export function aiFailureCode(error: unknown): AiFailureCode {
+  return typeof error === 'object' && error !== null ? safeFailures.get(error) ?? 'UNAVAILABLE' : 'UNAVAILABLE';
+}
+function classifyApiFailure(error: unknown): AiFailureCode {
+  const prior = aiFailureCode(error);
+  if (prior !== 'UNAVAILABLE') return prior;
+  try {
+    if (error instanceof OpenAI.APIConnectionTimeoutError) return 'TIMEOUT';
+    if (error instanceof OpenAI.APIError) {
+      const status = Object.getOwnPropertyDescriptor(error, 'status')?.value;
+      const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+      if (status === 401) return 'AUTHENTICATION';
+      if (status === 403) return 'PERMISSION';
+      if (status === 404) return 'MODEL_UNAVAILABLE';
+      if (status === 429) return code === 'insufficient_quota' ? 'QUOTA' : 'RATE_LIMIT';
+    }
+  } catch { /* Unknown objects never contribute raw diagnostic content. */ }
+  return 'UNAVAILABLE';
+}
+
 export const answerSchema = z.object({
   reply: z.string(), summary: z.string(), service: z.string().nullable(), requestedTime: z.string().nullable(),
   bookingStatus: z.enum(['none', 'requested', 'self_reported']), needsHuman: z.boolean(), nextAction: z.string(),
@@ -23,8 +54,9 @@ export class OpenAiClient implements AiClient {
         input: [{ role: 'user', content: JSON.stringify({ receivedAt: input.receivedAt, timezone: 'Asia/Taipei', handoff: input.handoff === true, modeNote: input.handoff ? '人工接手中，只整理需求供店主閱讀，reply填人工接手中，不向客人提供建議。requestedTime僅取本則原文，service可延續客人先前明確提及的項目。' : '初步客服；沒有已確認資料就交本人處理。', history: input.history.slice(-10), customerMessage: input.text.slice(0, 8000) }) }],
         text: { format: zodTextFormat(answerSchema, 'salon_response') },
       });
-      if (response.status !== 'completed') throw new Error('incomplete');
-      return validateAnswer(JSON.parse(response.output_text));
-    } catch { throw new Error('AI response unavailable'); }
+      if (response.status !== 'completed') throw new AiUnavailableError('INCOMPLETE');
+      try { return validateAnswer(JSON.parse(response.output_text)); }
+      catch { throw new AiUnavailableError('INVALID_RESPONSE'); }
+    } catch (error) { throw new AiUnavailableError(classifyApiFailure(error)); }
   }
 }

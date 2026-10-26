@@ -2,6 +2,22 @@
 
 本次開發日期：2026-10-24。程式尚未對正式客人啟用；以下把本地驗證與外部服務驗收分開記錄。
 
+## 2026-10-26 店主問題預覽（本地，未推送部署）
+
+核准 FAQ 版 `837e54374b0b82e2a30cd1402fc485cc5f5fbfb6` 已由本人同意上傳原 main，遠端 SHA 核對一致，[該提交 CI](https://github.com/e1001439-hash/HARRIS1-/actions/runs/40362371724) 成功（1分40秒）。其後本人回報部署 test/ai 與 `/readyz` 為 `{"ok":true}`；尚未實際驗證 API 餘額、模型請求或客人 AI 接待。Render「Live」僅部署狀態，不代表授權 `BOT_MODE=live`。
+
+本人再同意新增 `/preview 問題`，以 `/預覽 問題` 為中文別名；本輪只本地實作與離線測試。owner 一對一、test/ai、最多1000字元；共用原 AI 分析與核准 policy，空 history，不讀取他人對話、不送客人、不建立客人／預約待辦或通知、不改人工接手。規則直接接手明示未呼叫 AI，其餘成功顯示僅店主預覽與尚非端到端驗收。沿用 owner `skipTask/privateSetup`，完成後清除 payload/outcome。
+
+限流使用 migration005 的單一 `owner_preview_started_at` 欄與索引，保留 DB 時間；每10秒一次、滾動24小時20次，失敗或中斷也保留額度。owner session row鎖、有效事件租約與第一次claim先原子保留額度，再呼叫AI；重送、租約重領與檔案DB重啟不能額外生成。選擇時間欄而不把旗標塞進 outcome，保留既有 privateSetup 完全清除結果的不變式；代價是一個新增 migration，未更動正式資料庫。
+
+- RED：新增店主預覽與非owner隔離先在舊版失敗；18項供應商fake fetch案例先因缺少安全分類失敗，保留 `/tmp/harris-owner-preview/red-owner.log` 與 `red-ai.log`。
+- 相關驗證25項通過，涵蓋真本地PGlite、簽章HTTP、共用價目與預約政策、角色／模式／群組／簽章、空白／過長／過期、無歷史／待辦／人工變更、去重、限流、重啟及中斷；全部AI／LINE為fake，沒有使用真實金鑰或真實訊息。
+- 獨立審查唯一 Important 是非型別安全 adapter 可把任意 code 放入安全錯誤。以 `PRIVATE_UNTRUSTED_CODE` 先重現失敗，再加入建構子的執行時固定集合檢查；修正後19項API診斷案例通過。安全類別不保存 raw error、cause、供應商載荷或請求秘密，未知值統一 `UNAVAILABLE`。
+- 第一輪完整套件141通過、1失敗：舊 `migrations initialize durable event, session, task and outbox tables` 仍預期migration版本為 `[1,2,3,4]`，實際已依設計新增5。只更新此舊fixture預期為1至5，未修改產品邏輯或放寬其他斷言。
+- 最終 `npm run check`、`npm run build` 通過；完整 `npm test -- --test-concurrency=1` 為142通過、0失敗、0跳過（249.7秒）。原116項保留，新增19項API診斷與7項預覽整合。完整證據在 `/tmp/harris-owner-preview/`；沒有把fake付費API或簽章inject當成真實手機／帳戶驗收。
+
+本輪沒有推送、部署、API付費呼叫、憑證或正式設定變更。上傳前仍需確認差異不含秘密／私人聊天、保留test，另取得上傳與測試部署同意；部署須包含migration005，現有啟動遷移會套用。成功預覽至多證明當次AI分析與模板路徑，仍須分開驗收實際客人收發、店主通知與人工接手。已確認的gpt-5.4-mini能力／費率來自主對話官方查核，未在本雲端做付費驗證；其官方文件在本環境曾遭403，未重試或繞過。
+
 ## 2026-10-26 本人核准的最小 FAQ（僅本地）
 
 本人已提供預約問法、剪髮700元、其餘價格引導選單價目表，以及親切口語方向，並確認預約入口為 `https://harrishair.tw`。本輪只使用這些核准內容：`facts.json` 改為核准檔內明列知識，地址／營業時間仍為 `null`；未自行加入政策、優惠資格或全表數字報價。沒有保存私人聊天、姓名、頭像、原對話或休假／預約承諾；圖片沒有下載、公開或串接 LINE，本版不聲稱已傳圖。

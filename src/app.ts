@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { validSignature } from './signature.js';
 import type { Config, LineEvent } from './types.js';
 import { isPairingCommand, isPairingText, safeOwnerPairingText, type PairingService } from './pairing.js';
+import { isPreviewCommand } from './preview.js';
 
 const eventSchema = z.object({
   type: z.string(), webhookEventId: z.string().min(1).max(200), timestamp: z.number().int().nonnegative(),
@@ -35,6 +36,7 @@ export function createApp({ config, store, pairing }: { config: Config; store: {
         }
         // Reserved setup traffic is never normal customer content, including
         // wrong/replayed phrases and attempts from an already approved tester.
+        if (isPreviewCommand(text)) continue;
         if (isPairingText(text) || isPairingCommand(text)) { if (isPairingText(text)) await pairing?.receive(event); continue; }
         if (config.mode === 'live' || config.testUserIds.includes(userId) || await pairing?.isTester(userId)) accepted.push(event);
       }
