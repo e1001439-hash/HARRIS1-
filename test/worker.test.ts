@@ -21,7 +21,7 @@ test('customer receives reply and owner alone gets time/item/task notification',
   const f = await fixture(async () => ({ ...base, bookingStatus: 'requested', requestedTime: '週五下午', service: '剪髮', summary: '想預約剪髮' }));
   try { await f.store.ingest([event('one', '我想預約週五下午剪髮')]); await f.worker.tick();
     assert.equal(f.replies.length, 1); assert.equal(f.pushes.length, 1); assert.deepEqual(f.destinations, [owner]);
-    assert.match(f.pushes[0]!, /週五下午/); assert.match(f.pushes[0]!, /尚未確認/); assert.match(f.replies[0]!, /https:\/\/g7.zoom-world.tw/);
+    assert.match(f.pushes[0]!, /週五下午/); assert.match(f.pushes[0]!, /尚未確認/); assert.match(f.replies[0]!, /https:\/\/harrishair\.tw/);
     assert.doesNotMatch(f.replies[0]!, /已(?:幫你)?預約成功|預約已成功/); assert.equal((await f.store.listTasks()).length, 1);
   } finally { await f.db.close(); }
 });

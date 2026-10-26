@@ -14,7 +14,7 @@ const schema = z.object({
   SALON_AI_API_KEY: z.preprocess(v => v === '' ? undefined : v, z.string().min(1).optional()),
   AI_MODEL: z.preprocess(v => v === '' ? undefined : v, z.string().min(1).optional()),
   KNOWLEDGE_PATH: z.string().default('knowledge/salon.md'),
-  BOOKING_URL: httpsUrl.default('https://g7.zoom-world.tw/Round2HairSalon/index.aspx'),
+  BOOKING_URL: httpsUrl.default('https://harrishair.tw'),
   PUBLIC_SITE_URL: httpsUrl.default('https://harrishair.tw/'),
 });
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
