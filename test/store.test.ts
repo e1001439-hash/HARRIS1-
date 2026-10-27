@@ -42,7 +42,7 @@ test('migrations initialize durable event, session, task and outbox tables', asy
       assert.ok(names.includes(expected), `${expected} must survive a process restart`);
     }
     await Promise.all([migrate(db), migrate(db)]);
-    assert.deepEqual((await db.query<{version:number}>('SELECT version FROM schema_migrations ORDER BY version')).rows.map(row => row.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual((await db.query<{version:number}>('SELECT version FROM schema_migrations ORDER BY version')).rows.map(row => row.version), [1, 2, 3, 4, 5, 6]);
   } finally { await db.close(); }
 });
 
@@ -96,7 +96,7 @@ test('expired lease preserves send intent and rejects every stale worker mutatio
   await fixture(async (store, db) => {
     await store.ingest([event('recover')]);
     const stale = await requiredJob(store);
-    assert.equal(await store.markSending(stale), true);
+    assert.deepEqual(await store.markSending(stale), { introduceAssistant: true });
     assert.equal(await store.markSending(stale), false, 'send intent cannot be claimed twice');
     await db.query("UPDATE events SET lease_until = now() - interval '1 second' WHERE id = $1", [stale.id]);
     const recovered = await requiredJob(store);
@@ -134,7 +134,7 @@ test('handoff is authoritative at send time and owner replies can explicitly byp
     await store.setHandoff('customer', true);
     assert.equal(await store.markSending(job), false);
     assert.equal((await store.sessionForRef('C000001'))?.handoff, true);
-    assert.equal(await store.markSending(job, true), true);
+    assert.deepEqual(await store.markSending(job, true), { introduceAssistant: false });
     await store.setHandoff('customer', false);
     assert.equal((await store.getSession('customer')).handoff, false);
     assert.equal(await store.sessionForRef('C999999'), null);

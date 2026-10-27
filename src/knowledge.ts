@@ -7,5 +7,5 @@ const factsSchema = z.object({
   voice: z.object({ greeting: z.string().min(1).max(500), handoff: z.string().min(1).max(500) }),
 }).strict();
 export type SalonFacts = z.infer<typeof factsSchema>;
-export function emptyFacts(): SalonFacts { return { approved: false, address: null, hours: null, services: [], faqs: [], voice: { greeting: '你好，想了解服務或預約呢？', handoff: '收到你的訊息，這部分需要由我本人確認，稍後再回覆你。' } }; }
+export function emptyFacts(): SalonFacts { return { approved: false, address: null, hours: null, services: [], faqs: [], voice: { greeting: '你好，想了解服務或預約呢？', handoff: '收到～這部分要由 Harris 幫你確認喔，先稍等一下 😊' } }; }
 export async function loadFacts(path: string): Promise<SalonFacts> { return factsSchema.parse(JSON.parse(await readFile(path, 'utf8'))); }

@@ -13,7 +13,7 @@ type EventRow = {
   manual_handoff: boolean; handoff?: boolean; handoff_revision?: number;
   expired?: boolean;
 };
-type SessionRow = { user_id: string; customer_ref: string; handoff: boolean };
+type SessionRow = { user_id: string; customer_ref: string; handoff: boolean; assistant_intro_event_id?: string | null };
 type TaskRow = {
   id: string; customer_ref: string; status: string; booking_status: string;
   summary: string; next_action: string; service: string | null; requested_time: string | null; received_at: Date | string;
@@ -114,15 +114,18 @@ export class Store {
     });
   }
 
-  async markSending(job: EventJob, ignoreHandoff = false): Promise<boolean> {
+  async markSending(job: EventJob, ignoreHandoff = false): Promise<false | { introduceAssistant: boolean }> {
     return this.db.transaction(async tx => {
-      const session = await tx.query<SessionRow>('SELECT user_id, customer_ref, handoff FROM sessions WHERE user_id = $1 FOR UPDATE', [job.userId]);
+      const session = await tx.query<SessionRow>('SELECT user_id, customer_ref, handoff, assistant_intro_event_id FROM sessions WHERE user_id = $1 FOR UPDATE', [job.userId]);
       if (!session.rows[0] || (session.rows[0].handoff && !ignoreHandoff)) return false;
       const result = await tx.query(`UPDATE events e SET send_started = now() WHERE id = $1 AND user_id = $2
         AND status = 'processing' AND lease_token = $3 AND lease_until > clock_timestamp() AND send_started IS NULL
         AND text_removed_at IS NULL AND ingested_at > now() - interval '30 days'
         AND ($4::boolean OR (NOT manual_handoff AND ${latestEventSql})) RETURNING id`, [job.id, job.userId, job.leaseToken, ignoreHandoff]);
-      return result.rows.length === 1;
+      if (!result.rows.length) return false;
+      const introduceAssistant = !ignoreHandoff && session.rows[0].assistant_intro_event_id === null;
+      if (introduceAssistant) await tx.query('UPDATE sessions SET assistant_intro_event_id=$2 WHERE user_id=$1', [job.userId, job.id]);
+      return { introduceAssistant };
     });
   }
 
@@ -154,6 +157,11 @@ export class Store {
       if (!row) return;
       const redacted = row.text_removed_at !== null || row.expired === true || outcome.privateSetup === true;
       const safeOutcome: Outcome = redacted ? { ...outcome, reply: '', summary: REDACTED, service: null, requestedTime: null, nextAction: REDACTED } : outcome;
+      // Only an explicitly rejected send releases this event's reservation.
+      // Unknown delivery or a crash retains it, preventing repeated disclosure.
+      if (safeOutcome.delivery === 'failed' && !safeOutcome.skipTask) {
+        await tx.query('UPDATE sessions SET assistant_intro_event_id=NULL WHERE user_id=$1 AND assistant_intro_event_id=$2', [job.userId, job.id]);
+      }
       await tx.query(`UPDATE events SET status = 'done', outcome = $2::jsonb, delivery = $3,
         completed_at = now(), lease_until = NULL, lease_token = NULL,
         payload = CASE WHEN $4::boolean THEN NULL ELSE payload END,

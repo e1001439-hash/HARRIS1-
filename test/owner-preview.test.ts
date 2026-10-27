@@ -94,7 +94,7 @@ test('規則直接接手與未知問題預覽分清是否呼叫AI，錯誤不洩
   try {
     const rule = await f.send('rule', '/preview 我漂髮後頭皮過敏');
     assert.match(rule, /未呼叫\s*AI/); assert.match(rule, /本人/); assert.equal(f.calls.length, 0);
-    const unknown = await f.send('unknown', '/preview 你們幾點營業？');
+    const unknown = await f.send('unknown', '/preview 你們的地址在哪？');
     assert.match(unknown, /AI.*成功/); assert.match(unknown, /本人/); assert.doesNotMatch(unknown, /500/);
     await f.db.query("UPDATE events SET owner_preview_started_at=clock_timestamp()-interval '11 seconds'");
     fail = true; const failed = await f.send('failed', '/preview 剪髮多少？');

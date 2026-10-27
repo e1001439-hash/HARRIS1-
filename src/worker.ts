@@ -72,8 +72,10 @@ export class Worker {
     }
     const age = Date.now() - job.event.timestamp;
     if (job.event.replyToken && age < 50000 && age > -60000) {
-      if (await store.markSending(job, isOwner)) {
-        try { await within(line.reply(job.event.replyToken, result.reply), 9000); outcome.delivery = 'sent'; }
+      const permit = await store.markSending(job, isOwner);
+      if (permit) {
+        if (permit.introduceAssistant) outcome.reply = `你好～我是 Harris 的訊息小幫手，是協助回覆訊息的 AI。\n\n${outcome.reply}`;
+        try { await within(line.reply(job.event.replyToken, outcome.reply), 9000); outcome.delivery = 'sent'; }
         catch (error) { outcome.delivery = error instanceof DeliveryError ? error.delivery : 'unknown'; outcome.needsHuman = !isOwner; outcome.nextAction = '回覆未確認送達，請本人檢查再回覆'; }
       } else if (!isOwner) {
         outcome.reply = ''; outcome.preserveHandoff = true;

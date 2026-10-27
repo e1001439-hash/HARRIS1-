@@ -29,7 +29,7 @@ test('AI failure creates human handoff and still notifies owner', async () => {
   const f = await fixture(async () => { throw new Error('private failure'); });
   try { await f.store.ingest([event('fail', '想問服務')]); await f.worker.tick();
     assert.equal((await f.store.getSession(customer)).handoff, true); assert.equal(f.pushes.length, 1);
-    assert.ok(!f.pushes[0]!.includes('private')); assert.match(f.replies[0]!, /本人/);
+    assert.ok(!f.pushes[0]!.includes('private')); assert.match(f.replies[0]!, /Harris/);
   } finally { await f.db.close(); }
 });
 test('human request and media bypass AI; handoff continuations are analyzed without replies', async () => {
@@ -39,7 +39,7 @@ test('human request and media bypass AI; handoff continuations are analyzed with
     assert.equal(calls, 1); assert.equal(f.replies.length, 1); assert.equal(f.pushes.length, 2);
     await f.store.setHandoff(customer, false);
     const media = event('photo', ''); media.message = { type: 'image' };
-    await f.store.ingest([media]); await f.worker.tick(); assert.equal(calls, 1); assert.match(f.replies[1]!, /本人/);
+    await f.store.ingest([media]); await f.worker.tick(); assert.equal(calls, 1); assert.match(f.replies[1]!, /Harris/);
   } finally { await f.db.close(); }
 });
 test('handoff activated during AI generation suppresses late automated reply', async () => {

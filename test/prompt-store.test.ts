@@ -112,7 +112,7 @@ test('source time then sequence determine latest event, including older messages
     await store.ingest([event('newer', now), event('late-older', now - 60_000)], 'owner');
     const newer = await requiredEvent(store);
     assert.equal(await store.isLatestEvent(newer), true);
-    assert.equal(await store.markSending(newer), true);
+    assert.deepEqual(await store.markSending(newer), { introduceAssistant: true });
     await store.finishEvent(newer, outcome({ needsHuman: false }), 'owner');
     const older = await requiredEvent(store);
     assert.equal(await store.isLatestEvent(older), false); assert.equal(await store.markSending(older), false);
@@ -254,7 +254,7 @@ test('owner command send intent explicitly bypasses customer latest-event suppre
     await store.ingest([event('owner-first', Date.now(), 'owner'), event('owner-second', Date.now() + 1000, 'owner')], 'owner');
     const job = await requiredEvent(store);
     assert.equal(await store.isLatestEvent(job), false);
-    assert.equal(await store.markSending(job, true), true);
+    assert.deepEqual(await store.markSending(job, true), { introduceAssistant: false });
   });
 });
 

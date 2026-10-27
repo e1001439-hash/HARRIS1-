@@ -42,7 +42,7 @@ test('燙染與價目表詢問引導選單、折後金額與長度，不提供�
 });
 
 test('未核准資訊與複雜需求不會被服務關鍵詞帶進價目表FAQ', () => {
-  for (const text of ['染髮店的地址在哪？', '染髮幾點營業？', '剪髮700有含洗嗎？', '染髮訂金多少？', '燙髮取消怎麼算？', '染髮要不要先付定金？', '燙髮需要多少時間？', '染髮有護髮嗎？', '燙髮要幾分鐘？', '燙髮改期怎麼辦？', '染髮可以刷卡嗎？']) {
+  for (const text of ['染髮店的地址在哪？', '染髮店明天有營業嗎？', '剪髮700有含洗嗎？', '染髮訂金多少？', '燙髮取消怎麼算？', '染髮要不要先付定金？', '燙髮需要多少時間？', '染髮有護髮嗎？', '燙髮要幾分鐘？', '燙髮改期怎麼辦？', '染髮可以刷卡嗎？']) {
     const result = respond(text);
     assert.equal(result.needsHuman, true, text);
     assert.doesNotMatch(result.reply, /700|下方選單/);
@@ -57,7 +57,7 @@ test('預約詢問希望時段並使用核准入口，已提供時段不重問�
   const result = respond('我想預約剪髮');
   assert.match(result.reply, /希望預約.*時間/);
   assert.match(result.reply, /https:\/\/harrishair\.tw/);
-  assert.match(result.reply, /平台.*確認/);
+  assert.match(result.reply, /Harris.*確認/);
   assert.equal(result.needsHuman, true); assert.equal(result.bookingStatus, 'requested');
   const withTime = respond('我想約週五下午剪髮，價格多少？', { requestedTime: '週五下午', service: '剪髮' });
   assert.equal(withTime.bookingStatus, 'requested'); assert.equal(withTime.requestedTime, '週五下午');
