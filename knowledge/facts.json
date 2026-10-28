@@ -2,22 +2,97 @@
   "approved": true,
   "address": null,
   "hours": "11:00–18:00",
+  "haircutPrice": 700,
+  "priceTable": [
+    {
+      "service": "染髮",
+      "length": "S",
+      "newCustomer": 2140,
+      "member": 2230
+    },
+    {
+      "service": "染髮",
+      "length": "M",
+      "newCustomer": 2540,
+      "member": 2655
+    },
+    {
+      "service": "染髮",
+      "length": "L",
+      "newCustomer": 2780,
+      "member": 2910
+    },
+    {
+      "service": "染髮",
+      "length": "XL",
+      "newCustomer": 3020,
+      "member": 3165
+    },
+    {
+      "service": "燙髮",
+      "length": "S",
+      "newCustomer": 2400,
+      "member": 2550
+    },
+    {
+      "service": "燙髮",
+      "length": "M",
+      "newCustomer": 2800,
+      "member": 2975
+    },
+    {
+      "service": "燙髮",
+      "length": "L",
+      "newCustomer": 3200,
+      "member": 3400
+    },
+    {
+      "service": "燙髮",
+      "length": "XL",
+      "newCustomer": 3600,
+      "member": 3825
+    },
+    {
+      "service": "燙染",
+      "length": "S",
+      "newCustomer": 3840,
+      "member": 4080
+    },
+    {
+      "service": "燙染",
+      "length": "M",
+      "newCustomer": 4640,
+      "member": 4930
+    },
+    {
+      "service": "燙染",
+      "length": "L",
+      "newCustomer": 5280,
+      "member": 5610
+    },
+    {
+      "service": "燙染",
+      "length": "XL",
+      "newCustomer": 5920,
+      "member": 6290
+    }
+  ],
   "services": [
     {
       "name": "剪髮",
-      "price": "剪髮是 700 元喔 😊 想預約哪一天呢？"
+      "price": "獨立核准剪髮價格700元，不另套折扣。"
     },
     {
       "name": "燙髮",
-      "price": "可以先看下方選單的價目表喔 😊 新客跟會員的折後價格都有列好，依照頭髮長度看就可以了～不確定長度的話，也可以傳照片讓 Harris 幫你確認。"
+      "price": "依priceTable查新客或會員已列折後價，先確認服務與髮長，不再次計算折扣。"
     },
     {
       "name": "染髮",
-      "price": "可以先看下方選單的價目表喔 😊 新客跟會員的折後價格都有列好，依照頭髮長度看就可以了～不確定長度的話，也可以傳照片讓 Harris 幫你確認。"
+      "price": "依priceTable查新客或會員已列折後價，先確認服務與髮長，不再次計算折扣。"
     },
     {
       "name": "燙染",
-      "price": "可以先看下方選單的價目表喔 😊 新客跟會員的折後價格都有列好，依照頭髮長度看就可以了～不確定長度的話，也可以傳照片讓 Harris 幫你確認。"
+      "price": "依priceTable查新客或會員已列折後價，先確認服務與髮長，不再次計算折扣。"
     }
   ],
   "faqs": [
@@ -30,7 +105,7 @@
     }
   ],
   "voice": {
-    "greeting": "你好呀，想了解服務，還是預約時間呢？😊",
+    "greeting": "你好呀，有什麼想了解的呢？😊",
     "handoff": "收到～這部分要由 Harris 幫你確認喔，先稍等一下 😊"
   }
 }

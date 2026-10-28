@@ -2,6 +2,37 @@
 
 最初開發日期：2026-10-24。下方按日期保留各輪當時證據；歷史段落的「未部署／test」不代表目前狀態，本地驗證與外部服務驗收分開記錄。
 
+## 2026-10-28 有界上下文自然對話（僅本地）
+
+本人已同意先實作、看範例再決定是否更新線上。基準401bf62；本輪沒有推送、部署、真API／LINE、正式DB、憑證或費用操作，不做網站/POS或選單免AI捷徑。原生成有history卻被policy整段覆寫，是固定模板感主要來源；本輪用程式slot＋核准事實placeholder＋同一次AI有界措辭，保留合格草稿的連接語與順序。
+
+價格來源稽核：repo原先無全表數字、圖片或CSV；依可信歷史中主對話已核對本人正式價目圖的轉錄新增結構化折後價，不宣稱本輪重新看圖。L染髮新客2780／會員2910與本輪核對一致，沒有庫內矛盾；完整來源見knowledge/price-source.md。剪700獨立，不重新折扣或猜未知價格。
+
+上下文只取本客人user原文，10turn／30天，不把assistant建議當確認；Store.history依received_at再sequence排序，舊事件晚到不覆蓋新slot。項目／長度更正、明確新客／會員宣稱可接續；否定、非會員、資格提問及多選不能變成已確認slot。時段僅從本則原文取，不沿用前則假當新更改。未加永久偏好或migration。
+
+保留既有接手界線：requested一律needsHuman=true，初次回覆後sticky handoff；「胸上染價→我是新客→週六兩點」可回，接著「三點也可以」只整理與通知owner，不能自動回客人。先說想預約但未給時間也可能先問缺項就接手。owner的take/resume、通知獨立迴圈、首次AI身份、lease及冪等維持，不因對話改善自動解除接手。
+
+TDD／審查紀錄：
+
+- 新政策13項先在舊程式10失敗／3通過（真差距為上下文、具體價格、自然草稿保留及本則plan），其後13全通過；混合索取連結的第14項亦先RED再GREEN。
+- context最初模組缺失RED；後續真斷言先重現未知長度沿舊L、資格提問、價表重複key，再修正。時段更正／同指日期與否定亦先RED→GREEN；最終context16項通過。
+- guard逐輪RED→GREEN。獨立審查發現只禁敏感詞仍放行「老闆收到囉／敲定囉／別信pending／pending才怪」；改採prompt與guard共用的正向有限銜接片語，逐literal驗證不跨placeholder拼字。再以👎反轉待確認重現RED，限制自由emoji為😊。guard25項通過，不把有限片語驗證包裝成任意自由文字安全證明。
+- Worker整合先重現無上下文的新客轉人工、晚到舊事件覆蓋新服務／髮長；修正後5個場景全通過，包括檔案DB重開、三輪報價到首次時段、接手後三點只有owner通知、客人隔離、更正／會員／剪700／謝謝、API失敗與重送。原一次金額千位逗號／問句形式斷言過嚴已改為產品行為期待，未放寬價格、接手或隔離。
+- 獨立審查共3項Important：連結分支清空混合booking/self_reported、否定與會員提及誤認slot、口語反轉／假通知。均已加失敗回歸再修正；未發現額外重要回歸。原先期待每次貼預約URL、每句問日期及只貼表的測試依本輪明確授權更新，預約未確認、未知政策與角色隔離的安全斷言保留。
+
+- 第一輪完整套件218通過、0失敗、0跳過（152.7秒，`/tmp/harris-contextual-full.log`）。最後自查另以「改燙，胸上／先不要染，改燙」重現未識別縮寫會沿用舊染髮slot；新增失敗回歸後保守清空不完整服務，先詢問而不報前項價格。相關31項及重新型別／建置皆通過；這是保守理解邊界，不新增縮寫價格推定。最終完整重跑結果另記。
+- 型別／建置log為`/tmp/harris-contextual-{check,build}-final.log`。實際fake LINE輸出artifact為`/tmp/harris-contextual-dialogues-final.json`，五組對話由此產生`docs/CONVERSATION_EXAMPLES.md`，移除測試識別碼與retry key。草稿是人工寫定的mock，沒有把它說成真模型結果；兩種不同合格稿的實際措辭／順序亦有exact-output測試，證明沒有全部被fallback覆寫。
+- 最終完整`HARRIS_DIALOGUE_ARTIFACT=/tmp/harris-contextual-dialogues-final.json npm test -- --test-concurrency=1`為**219通過、0失敗、0跳過**（159.6秒），log `/tmp/harris-contextual-full-final.log`。原157項保留，新增context16、guard25、對話policy15、Worker整合5及client計畫傳遞1，共62項。`npm run check`、`npm run build`在最後程式修正後重新通過，沒有殘留失敗或待跑檢查。
+
+變更檔案分組：
+
+- `src/dialogue-context.ts`、`reply-guard.ts`新增有界slot與有限銜接語驗證；`policy.ts`、`analysis.ts`、`types.ts`、`clients/ai.ts`接入單次生成／核准事實計畫；`store.ts`僅調整history來源排序。
+- `knowledge/facts.json`、`salon.md`及新增`price-source.md`記錄已核准折後價與自然接話／接手規則。
+- 新增`test/dialogue-context.test.ts`、`reply-guard.test.ts`、`contextual-policy.test.ts`、`contextual-worker.test.ts`；更新`approved-faq.test.ts`、`clients.test.ts`、`identity-policy.test.ts`、`owner-preview.test.ts`、`worker.test.ts`的本輪行為期待與安全回歸。
+- README、SETUP、本驗證紀錄、新設計／計畫及CONVERSATION_EXAMPLES提供範圍與證據。未改依賴、環境設定、migration或workflow。
+
+新自然對話只有fake AI／LINE與真本地PGlite驗證；沒有真實模型的自然程度、草稿通過率、額度或正式客人端到端證據。安全fallback不等於自然草稿通過。需本人審閱範例後另行批准上傳／部署，沒有要求本人提供secret。本輪沒有推送、部署或補發舊訊息。新增完整價表來自已核圖轉錄，並非本輪讀取原圖；保留這項來源限制與有限口語片語的自然程度取捨。
+
 ## 2026-10-27 身份、語氣與一般營業時間（僅本地）
 
 本輪開始時，主對話回報線上已為 `live/ai`，Web US$7／月與資料庫 US$6／月均由本人確認，四題真實 owner 預覽曾成功。第一則固定回覆及主人通知已實測，後續時段更新通知仍未真實驗收；未宣稱根因已定位。這輪沒有查正式 DB、使用真 API、讀私人聊天、補發客人訊息或改遠端。

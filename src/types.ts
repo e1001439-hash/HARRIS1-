@@ -12,7 +12,10 @@ export interface AiResult {
   reply: string; summary: string; service: string | null; requestedTime: string | null;
   bookingStatus: 'none' | 'requested' | 'self_reported'; needsHuman: boolean; nextAction: string;
 }
-export interface AiInput { text: string; history: { role: 'user' | 'assistant'; content: string }[]; knowledge: string; receivedAt: string; handoff?: boolean }
+export interface AiInput {
+  text: string; history: { role: 'user' | 'assistant'; content: string }[]; knowledge: string; receivedAt: string; handoff?: boolean;
+  replyPlan?: { topic: string; claims: Record<string, string>; required: string[]; missing: string[] };
+}
 export interface AiClient { generate(input: AiInput): Promise<AiResult> }
 export interface LineClient { reply(token: string, text: string): Promise<void>; push(userId: string, text: string, retryKey: string): Promise<void> }
 export type Delivery = 'sent' | 'failed' | 'unknown' | 'not_sent';

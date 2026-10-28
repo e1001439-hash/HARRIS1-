@@ -47,7 +47,7 @@ test('店主預覽共用核准價格與預約政策，空歷史且不建立待�
     assert.equal(row.payload, null); assert.equal(row.outcome, null);
     await f.db.query("UPDATE events SET owner_preview_started_at=clock_timestamp()-interval '11 seconds'");
     const booking = await f.send('book', '/預覽 我想預約剪髮');
-    assert.match(booking, /希望預約.*時間/); assert.match(booking, /https:\/\/harrishair\.tw/);
+    assert.match(booking, /希望預約.*時間/); assert.doesNotMatch(booking, /https?:/);
     assert.match(booking, /需要本人/); assert.doesNotMatch(booking, /已預約成功/);
     assert.equal((await f.store.listTasks()).length, 0); assert.equal(f.pushes.length, 0);
   } finally { await f.close(); }

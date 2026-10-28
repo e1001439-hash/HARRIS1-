@@ -29,16 +29,17 @@ test('核准剪髮價格能處理常用問法，且不採用模型折扣或預�
   }
 });
 
-test('燙染與價目表詢問引導選單、折後金額與長度，不提供自行報價或假圖片', () => {
-  for (const text of ['燙髮多少？', '染髮費用怎麼算？', '燙染價格多少錢？', '可以給我價目表嗎？']) {
+test('燙染問價只問未提供長度，明確索取價目表才引導選單，不自行估價或假傳圖', () => {
+  for (const text of ['燙髮多少？', '染髮費用怎麼算？', '燙染價格多少錢？']) {
     const result = respond(text, { bookingStatus: 'requested' });
-    assert.match(result.reply, /下方選單.*價目表/s);
-    assert.match(result.reply, /新客/); assert.match(result.reply, /會員/);
-    assert.match(result.reply, /折後/); assert.match(result.reply, /長度/);
+    assert.match(result.reply, /長度/); assert.doesNotMatch(result.reply, /下方選單|預約|https?:/);
     assert.doesNotMatch(result.reply, /\d{3,}/);
     assert.equal(result.needsHuman, false);
     safeText(result.reply);
   }
+  const menu = respond('可以給我價目表嗎？');
+  assert.match(menu.reply, /下方選單.*價目表/s); assert.match(menu.reply, /新客.*會員.*折後/);
+  assert.equal(menu.needsHuman, false); safeText(menu.reply);
 });
 
 test('未核准資訊與複雜需求不會被服務關鍵詞帶進價目表FAQ', () => {
@@ -53,15 +54,14 @@ test('未核准資訊與複雜需求不會被服務關鍵詞帶進價目表FAQ',
   assert.equal(result.needsHuman, true); assert.doesNotMatch(result.reply, /700/);
 });
 
-test('預約詢問希望時段並使用核准入口，已提供時段不重問，也不保證空檔', () => {
+test('預約只收集未給時段，已給時段不重問，不反覆貼入口或保證空檔', () => {
   const result = respond('我想預約剪髮');
   assert.match(result.reply, /希望預約.*時間/);
-  assert.match(result.reply, /https:\/\/harrishair\.tw/);
-  assert.match(result.reply, /Harris.*確認/);
+  assert.doesNotMatch(result.reply, /https?:/);
   assert.equal(result.needsHuman, true); assert.equal(result.bookingStatus, 'requested');
   const withTime = respond('我想約週五下午剪髮，價格多少？', { requestedTime: '週五下午', service: '剪髮' });
   assert.equal(withTime.bookingStatus, 'requested'); assert.equal(withTime.requestedTime, '週五下午');
-  assert.match(withTime.reply, /700\s*元/); assert.match(withTime.reply, /https:\/\/harrishair\.tw/);
+  assert.match(withTime.reply, /700\s*元/); assert.match(withTime.reply, /Harris.*確認/); assert.doesNotMatch(withTime.reply, /https?:/);
   assert.doesNotMatch(withTime.reply, /有沒有希望預約/);
   safeText(result.reply); safeText(withTime.reply);
 });
@@ -77,7 +77,7 @@ test('實際worker使用核准FAQ後仍能接收預約，接手後僅通知店�
     await store.ingest([message('faq-price', '剪髮多少？')]); await worker.tick();
     assert.match(replies[0]!, /700\s*元/); assert.equal((await store.getSession(customer)).handoff, false);
     await store.ingest([message('faq-booking', '我想預約剪髮')]); await worker.tick();
-    assert.match(replies[1]!, /https:\/\/harrishair\.tw/); assert.equal((await store.getSession(customer)).handoff, true);
+    assert.match(replies[1]!, /希望預約.*時間/); assert.doesNotMatch(replies[1]!, /https?:/); assert.equal((await store.getSession(customer)).handoff, true);
     await store.ingest([message('faq-followup', '改成週六下午')]); await worker.tick();
     assert.equal(replies.length, 2); assert.ok(notices.some(text => text.includes('改成週六下午')));
     await store.setHandoff(customer, false);

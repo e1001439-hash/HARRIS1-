@@ -9,11 +9,13 @@ const model: AiResult = { reply: '我本人已幫你預約成功，也看過照�
 const respond = (text: string, patch: Partial<AiResult> = {}) => applyPolicy({ ...model, ...patch }, text, '', 'https://harrishair.tw', facts);
 const emojiCount = (text: string) => [...new Intl.Segmenter('zh-TW', { granularity: 'grapheme' }).segment(text)].filter(part => /\p{Extended_Pictographic}/u.test(part.segment)).length;
 
-test('核准剪價與燙染回覆以助手身分引導，不冒充 Harris 或宣稱已看照片', () => {
-  assert.equal(respond('剪髮多少錢？').reply, '剪髮是 700 元喔 😊 想預約哪一天呢？');
-  for (const question of ['燙髮多少？', '染髮價格？', '燙染價格？', '給我價目表']) {
+test('核准剪價與燙染詢問只補缺項，不冒充 Harris 或宣稱已看照片', () => {
+  assert.match(respond('剪髮多少錢？').reply, /700\s*元/);
+  assert.doesNotMatch(respond('剪髮多少錢？').reply, /預約|哪一天/);
+  for (const question of ['燙髮多少？', '染髮價格？', '燙染價格？']) {
     const result = respond(question);
-    assert.equal(result.reply, '可以先看下方選單的價目表喔 😊 新客跟會員的折後價格都有列好，依照頭髮長度看就可以了～不確定長度的話，也可以傳照片讓 Harris 幫你確認。');
+    assert.match(result.reply, /長度.*肩上.*胸上/);
+    assert.doesNotMatch(result.reply, /下方選單|預約|\d{3,}/);
     assert.equal(result.needsHuman, false);
     assert.doesNotMatch(result.reply, /我本人|已看|已傳送/);
   }
@@ -31,7 +33,7 @@ test('已有預約時段使用本人核准短句，內部僅待確認需求', ()
   assert.match(result.reply, /這個時段需由 Harris 確認，請稍等唷/);
   assert.doesNotMatch(result.reply, /想預約哪一天|希望預約什麼時間|先不要當作|我本人|預約成功/);
   assert.equal(result.bookingStatus, 'requested'); assert.equal(result.needsHuman, true);
-  assert.equal(result.requestedTime, '週五下午'); assert.match(result.reply, /https:\/\/harrishair\.tw/);
+  assert.equal(result.requestedTime, '週五下午'); assert.doesNotMatch(result.reply, /https?:/);
 });
 
 test('價格與預約組合不重問已給時段，每則至多一個 emoji', () => {
@@ -86,5 +88,5 @@ test('日期營業與預約混合問題保留需求與時段，不被預約分�
 test('客人自述預約成功只讓 Harris 核對，不再以店主本人語氣承諾', () => {
   const result = respond('我在平台預約好了');
   assert.equal(result.bookingStatus, 'self_reported'); assert.equal(result.needsHuman, true);
-  assert.match(result.reply, /Harris.*確認/); assert.doesNotMatch(result.reply, /我會再確認|我本人/);
+  assert.match(result.reply, /Harris.*(?:確認|核對)/); assert.doesNotMatch(result.reply, /我會再確認|我本人/);
 });

@@ -206,7 +206,7 @@ export class Store {
   async history(userId: string): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
     const result = await this.db.query<{ payload: LineEvent; outcome: Outcome }>(`SELECT payload, outcome FROM events
       WHERE user_id = $1 AND status = 'done' AND payload IS NOT NULL AND outcome IS NOT NULL
-        AND ingested_at > now() - interval '30 days' ORDER BY sequence DESC LIMIT 10`, [userId]);
+        AND ingested_at > now() - interval '30 days' ORDER BY received_at DESC, sequence DESC LIMIT 10`, [userId]);
     const turns: { role: 'user' | 'assistant'; content: string }[] = [];
     for (const row of result.rows.reverse()) {
       if (row.payload.message?.type === 'text' && row.payload.message.text) turns.push({ role: 'user', content: row.payload.message.text });
