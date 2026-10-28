@@ -2,6 +2,29 @@
 
 最初開發日期：2026-10-24。下方按日期保留各輪當時證據；歷史段落的「未部署／test」不代表目前狀態，本地驗證與外部服務驗收分開記錄。
 
+## 2026-10-28 第二輪：自然句子與獨立語意核驗（僅本地）
+
+前一個本地e94a4d6的26片語＋整句插槽未滿足本人核心需求，本段取代其自然度完成聲稱；219項通過僅是前版程式證據。此次先完成獨立設計review，補齊price_basis／address／非結構FAQ、肯否定與scope／未來承諾、greeting開放問句、真abort／deadline及預覽source五項，才實作。
+
+移除措辭白名單與整句price／缺項／thanks插槽。模型可自然寫句；程式鎖定允許facts/questions/actions，金額／URL等用原子值，pending為本人允許的固定安全例外。另一次同供應商核驗獨立抽取候選句的實際facts、肯否定、questions、無證據完成／未來承諾／能力actions與persona，提供原樣evidence；程式canonical比對角色／項目／長度／客群／值，檢查必填、缺項、來源與狀態，不只接受supported。price evidence另檢查包含相同完整金額。
+
+一般自然回覆未來最多生成12秒＋核驗5.5秒兩次既有模型請求，store=false、零重試，共同19秒AbortSignal；API失敗／不完整／核驗不確定或未配置adapter不採用自然草稿。fallback可用原有核准安全簡答，known price不必因此擅自改接手；booking原本needsHuman仍保留。replySource由程式設定natural_verified／policy_fallback／handoff，模型schema不接受自報；owner預覽明確顯示fallback，不再把「AI分析成功」當自然生成通過。
+
+TDD證據：
+
+- 新自然分析12項先12/12 RED→GREEN，涵蓋多個未列舉自然同義句、自由問題／謝謝、剪700正常句、兩價交換角色、假通知／承諾／能力／敲定、否定／再折／假日、額外問題、核驗缺漏／錯evidence、missing verifier，以及真abort與late gen不啟動review。
+- 新原子／canonical邊界先6項RED再22項GREEN；price evidence不能只截無關字或用2700假證700，另2項先RED；最終該檔23項通過。
+- 真SDK＋fake fetch API兩檔先8失敗，實作後連同舊診斷33項通過：獨立gen/review、無生成器自我背書、schema/store=false/零重試、12秒/5.5秒、abort傳遞、拒答／格式／HTTP錯誤不保存raw secrets/payload。
+- 新natural-plan先5項RED後6項GREEN，證日常只有原子數值、語意事實與缺項，不傳整段句式；不結構化FAQ沿原安全fallback，不偷用整句生成slot。
+- 多輪Worker五場景全通過，保留重啟、價格／更正、會員、謝謝、不同客人、亂序、重送、API失敗及接手後通知。mock生成草稿與mock核驗報告分開人工指定，不複製production contract當答案；artifact含兩者及actual outcomes.replySource。
+- 獨立程式review無Critical／Important，指出timer回呼延遲可能接受deadline後的review；按硬期限需求加失敗測試（缺少預期TIMEOUT）後修正active同時比對牆鐘並abort，不把這個邊界當無關polish。另整理type-only import／EOF空行。
+
+- 最終`npm run check`、`npm run build`皆通過。完整`HARRIS_DIALOGUE_ARTIFACT=/tmp/harris-natural-dialogues-final.json npm test -- --test-concurrency=1`為**245通過、0失敗、0跳過**（144.2秒），log `/tmp/harris-natural-full.log`。其中原上下文／價格／隔離／接手／去重／重啟回歸保留；前版25項白名單邊界改為23項原子／canonical語意邊界，不繼續把自然措辭當錯誤。新增natural-plan6、natural-analysis13、semantic-client8、owner預覽來源1，較前版219項淨增26項。
+- 新自然分析＋owner預覽相關21項亦在deadline修正後通過，`/tmp/harris-natural-preview-deadline-green.log`；型別／建置log `/tmp/harris-natural-{check,build}-pre-full.log`。最終artifact `/tmp/harris-natural-dialogues-final.json`包含人工mockDrafts、人工mockReviews與actual outcomes.replySource；由此重建CONVERSATION_EXAMPLES五組完整原樣對話。沒有識別碼或retry key進範例文件。
+- 本輪修改生成／核驗client、原子與canonical guard、natural-plan、analysis deadline／source、policy安全fallback、preview顯示及對應測試／知識／文件；沒有改價格數值、context原文解析、Store、Worker、通知、依賴、環境變數、migration或workflow。前版已發佈基準仍401bf62，本輪local自然版未上線。
+
+模型若漏抽違規句卻錯報complete，程式不能形式證明其完整；同模型兩次獨立請求仍可能相關錯誤。所有通過數字僅mock協定／程式驗證，非真自然度或核驗準確率。本輪無真API／LINE、秘密讀取、新付費服務、推送或部署；未來兩次API用量與延遲需本人審閱，不能由本輪推估費用。本地可審提交保留，等待本人審閱自然語句與取捨，不以通過測試代替本人驗收。
+
 ## 2026-10-28 有界上下文自然對話（僅本地）
 
 本人已同意先實作、看範例再決定是否更新線上。基準401bf62；本輪沒有推送、部署、真API／LINE、正式DB、憑證或費用操作，不做網站/POS或選單免AI捷徑。原生成有history卻被policy整段覆寫，是固定模板感主要來源；本輪用程式slot＋核准事實placeholder＋同一次AI有界措辭，保留合格草稿的連接語與順序。

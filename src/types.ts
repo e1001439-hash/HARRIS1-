@@ -1,3 +1,5 @@
+import type { NaturalContract, SemanticReview, VerificationInput } from './reply-guard.js';
+
 export interface LineEvent {
   type: string; webhookEventId: string; timestamp: number; replyToken?: string;
   source: { type: string; userId?: string };
@@ -11,12 +13,14 @@ export interface Config {
 export interface AiResult {
   reply: string; summary: string; service: string | null; requestedTime: string | null;
   bookingStatus: 'none' | 'requested' | 'self_reported'; needsHuman: boolean; nextAction: string;
+  replySource?: 'natural_verified' | 'policy_fallback' | 'handoff';
 }
 export interface AiInput {
   text: string; history: { role: 'user' | 'assistant'; content: string }[]; knowledge: string; receivedAt: string; handoff?: boolean;
-  replyPlan?: { topic: string; claims: Record<string, string>; required: string[]; missing: string[] };
+  replyPlan?: NaturalContract;
+  signal?: AbortSignal;
 }
-export interface AiClient { generate(input: AiInput): Promise<AiResult> }
+export interface AiClient { generate(input: AiInput): Promise<AiResult>; verify?(input: VerificationInput): Promise<SemanticReview> }
 export interface LineClient { reply(token: string, text: string): Promise<void>; push(userId: string, text: string, retryKey: string): Promise<void> }
 export type Delivery = 'sent' | 'failed' | 'unknown' | 'not_sent';
 export interface EventJob {

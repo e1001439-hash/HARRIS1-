@@ -43,16 +43,22 @@ test('OpenAI refuses unsupported booking confirmation, malformed output and mode
     await assert.rejects(() => ai.generate({ text: '預約', history: [], knowledge: '', receivedAt: new Date().toISOString() }));
   }
 });
-test('OpenAI把程式核准的本則placeholder計畫帶入同一次生成，客人原文仍只是資料', async () => {
+test('OpenAI把原子值與事實契約帶入自然生成，客人原文仍只是資料', async () => {
   let body: any;
   const ai = new OpenAiClient('fake-key', 'fake-model', async (_url, options) => {
     body = JSON.parse(options!.body as string);
-    return Response.json({ id: 'fake', object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ ...answer, reply: '了解～{{quote}} 😊' }), annotations: [] }] }] });
+    return Response.json({ id: 'fake', object: 'response', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: JSON.stringify({ ...answer, reply: '胸上染髮新客是 {{price_new}} 元喔 😊' }), annotations: [] }] }] });
   });
-  await ai.generate({ text: 'PRIVATE_IGNORE_PRICE_PLAN', history: [], knowledge: '核准資料', receivedAt: '2026-10-28T03:00:00Z', replyPlan: { topic: 'price', claims: { quote: 'L染髮新客2780元' }, required: ['quote'], missing: [] } });
+  await ai.generate({ text: 'PRIVATE_IGNORE_PRICE_PLAN', history: [], knowledge: '核准資料', receivedAt: '2026-10-28T03:00:00Z', replyPlan: {
+    topic: 'price', atoms: { price_new: '2,780' }, requiredAtoms: ['price_new'],
+    allowedFacts: [{ kind: 'price', service: '染髮', length: 'L', audience: 'new', value: '2780', polarity: 'affirmed' }],
+    requiredFacts: [{ kind: 'price', service: '染髮', length: 'L', audience: 'new', value: '2780', polarity: 'affirmed' }],
+    allowedQuestions: [], requiredQuestions: [],
+  } });
   const data = JSON.parse(body.input[0].content);
-  assert.equal(data.replyPlan.claims.quote, 'L染髮新客2780元'); assert.deepEqual(data.replyPlan.required, ['quote']);
+  assert.equal(data.replyPlan.atoms.price_new, '2,780'); assert.deepEqual(data.replyPlan.requiredAtoms, ['price_new']);
   assert.match(body.instructions, /placeholder|插槽/); assert.match(body.instructions, /不.*每次|不要.*每次/);
+  assert.match(body.instructions, /自然句|自由.*措辭/); assert.doesNotMatch(body.instructions, /只能組合|片語清單/);
   assert.equal(body.instructions.includes('PRIVATE_IGNORE_PRICE_PLAN'), false);
   assert.equal(data.customerMessage, 'PRIVATE_IGNORE_PRICE_PLAN'); assert.equal(body.store, false);
 });

@@ -1,175 +1,160 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderGroundedReply, type ReplyContract } from '../src/reply-guard.js';
+import { renderAtomicReply, checkSemanticReview } from '../src/reply-guard.js';
+import type { NaturalContract, SemanticFact, SemanticReview } from '../src/reply-guard.js';
 
-const contract: ReplyContract = {
-  claims: {
-    quote: 'L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）',
-    pending: '這個時段需由 Harris 確認，請稍等唷',
-    request: '週六兩點的染髮需求',
-    ask_length: '頭髮目前大約到肩上、胸上，還是胸下呢？',
-    booking_link: 'https://harrishair.tw',
-  },
-  required: ['quote'],
+// These reports are manually authored mock semantic extractions. They prove
+// the protocol/canonical boundary, not a real model's extraction accuracy.
+const price = (audience: string, value: string): SemanticFact => ({ kind: 'price', service: '染髮', length: 'L', audience, value, polarity: 'affirmed' });
+const newPrice = price('new', '2780'), memberPrice = price('member', '2910');
+const contract: NaturalContract = {
+  topic: 'price', atoms: { price_new: '2,780', price_member: '2,910' }, requiredAtoms: ['price_new', 'price_member'],
+  allowedFacts: [newPrice, memberPrice, { kind: 'price_basis', service: null, length: null, audience: null, value: 'already_discounted', polarity: 'affirmed' }],
+  requiredFacts: [newPrice, memberPrice], allowedQuestions: [], requiredQuestions: [],
 };
+function render(draft: string, policy: NaturalContract = contract): string | null {
+  return renderAtomicReply(draft, policy);
+}
+function check(candidate: string, policy: NaturalContract, review: unknown): boolean {
+  return checkSemanticReview(candidate, policy, review);
+}
+function report(candidate: string, facts: SemanticFact[] = [newPrice, memberPrice]): SemanticReview {
+  return { verdict: 'supported', complete: true, facts: facts.map(fact => ({ ...fact, evidence: candidate })), questions: [], actions: [], persona: 'assistant', issues: [] };
+}
+const candidate = '胸上就是 L 囉，染髮新客折後 2,780 元，會員是 2,910 元。';
 
-test('保留生成的兩種口語銜接，只用核准片段填入實際金額', () => {
-  assert.equal(renderGroundedReply('了解～那就是{{quote}}，慢慢考慮也可以 😊', contract),
-    '了解～那就是L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額），慢慢考慮也可以 😊');
-  assert.equal(renderGroundedReply('好呀，{{quote}}。有其他問題再跟我說喔～', contract),
-    '好呀，L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）。有其他問題再跟我說喔～');
+test('沒有預先白名單的自然同義句與順序可以保留，金額只替換原子值', () => {
+  const drafts = [
+    ['胸上就是 L 囉，染髮新客折後 {{price_new}} 元，會員是 {{price_member}} 元。', candidate],
+    ['若以會員身分看是 {{price_member}} 元；第一次來則是 {{price_new}} 元，這兩個都是胸上染髮的價位 😊', '若以會員身分看是 2,910 元；第一次來則是 2,780 元，這兩個都是胸上染髮的價位 😊'],
+    ['我幫你對一下胸上染髮的價目：新客 {{price_new}}、會員 {{price_member}} 元，表內已經折過囉。', '我幫你對一下胸上染髮的價目：新客 2,780、會員 2,910 元，表內已經折過囉。'],
+  ];
+  for (const [draft, expected] of drafts) assert.equal(render(draft!), expected);
 });
 
-test('保留當下合格生成的事實順序與段落，不重新覆寫整段模板', () => {
-  const pending = { ...contract, required: ['request', 'pending'] };
-  assert.equal(renderGroundedReply('{{pending}}。\n{{request}}，了解囉 😊', pending),
-    '這個時段需由 Harris 確認，請稍等唷。\n週六兩點的染髮需求，了解囉 😊');
-  assert.equal(renderGroundedReply('了解～{{request}}，{{pending}}。', pending),
-    '了解～週六兩點的染髮需求，這個時段需由 Harris 確認，請稍等唷。');
+test('追問怎麼說與致謝收尾不使用片語或整句插槽', () => {
+  const clarify: NaturalContract = { topic: 'clarify', atoms: {}, requiredAtoms: [], allowedFacts: [], requiredFacts: [], allowedQuestions: ['length'], requiredQuestions: ['length'] };
+  for (const text of ['方便說一下頭髮現在大概到哪裡嗎？', '你目前的髮長比較接近肩膀，還是胸口呢？']) assert.equal(render(text, clarify), text);
+  const closing = { ...clarify, topic: 'thanks', allowedQuestions: [], requiredQuestions: [] };
+  for (const text of ['不用客氣呀，希望有幫上忙 😊', '好喔，慢慢想，有想法再聊～']) assert.equal(render(text, closing), text);
 });
 
-test('核准連接片語可組合與換序，並非只能使用固定整段回覆', () => {
-  assert.equal(renderGroundedReply('可以呀～{{quote}}，再跟我說就好 😊', contract),
-    '可以呀～L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額），再跟我說就好 😊');
-  assert.equal(renderGroundedReply('這樣比較清楚一些，{{quote}}。慢慢想就好', contract),
-    '這樣比較清楚一些，L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）。慢慢想就好');
+test('缺項問句與開放開場依語意slot核驗，不限定字面問法', () => {
+  const policy: NaturalContract = { topic: 'clarify', atoms: {}, requiredAtoms: [], allowedFacts: [], requiredFacts: [], allowedQuestions: ['length'], requiredQuestions: ['length'] };
+  const text = '方便說一下頭髮現在大概到哪裡嗎？';
+  const review = { ...report(text, []), questions: [{ slot: 'length', evidence: text }] };
+  assert.equal(check(text, policy, review), true);
+  assert.equal(check(text, policy, { ...review, questions: [] }), false);
+  assert.equal(check(text, policy, { ...review, questions: [{ slot: 'time', evidence: text }] }), false);
+  const greeting = { ...policy, topic: 'greeting', allowedQuestions: ['help_topic'], requiredQuestions: [] };
+  const hello = '嗨，今天想了解哪方面的髮型問題呢？';
+  assert.equal(check(hello, greeting, { ...report(hello, []), questions: [{ slot: 'help_topic', evidence: hello }] }), true);
 });
 
-for (const [label, draft] of [
-  ['假稱店主收到', '{{request}}。{{pending}}。老闆收到囉'],
-  ['假稱敲定', '{{request}}。{{pending}}。敲定囉'],
-  ['勸忽視待確認', '別信{{pending}}。{{request}}'],
-  ['反轉待確認', '{{request}}。{{pending}}才怪'],
+test('完整且逐項吻合的語意報告可通過，價格千分逗號可標準化', () => {
+  assert.equal(check(candidate, contract, report(candidate)), true);
+  assert.equal(check(candidate, contract, report(candidate, [price('new', '2,780'), price('member', '2,910')])), true);
+});
+
+test('兩個正確價格交換客群，即使報supported仍不能通過', () => {
+  const swapped = '胸上染髮新客 2,910 元，會員 2,780 元。';
+  assert.equal(check(swapped, contract, report(swapped, [price('new', '2910'), price('member', '2780')])), false);
+});
+
+test('報錯價、錯項目、錯長度、未確認身分或再次折扣均不在核准facts', () => {
+  for (const invalid of [price('new', '2224'), { ...newPrice, service: '燙髮' }, { ...newPrice, length: 'M' }, { ...newPrice, audience: 'vip' }, { kind: 'price_basis', service: null, length: null, audience: null, value: 'discount_again_80_percent', polarity: 'affirmed' } satisfies SemanticFact]) {
+    assert.equal(check(candidate, contract, report(candidate, [invalid, memberPrice])), false);
+  }
+});
+
+for (const [label, kind, mode, claim] of [
+  ['已通知', 'notification', 'done', 'Harris已經收到訊息了。'],
+  ['將代為通知', 'notification', 'promised', '我會幫你通知Harris。'],
+  ['已備註', 'note', 'done', '剛剛幫你備註好了。'],
+  ['已預約成功', 'booking', 'done', '已替你約好了。'],
+  ['能直接保留', 'availability', 'capability', '這時段我能直接替你保留。'],
+  ['動作不明', 'other', 'uncertain', '這個我幫你處理就好。'],
 ] as const) {
-  test(`未審閱銜接語不能${label}`, () => {
-    assert.equal(renderGroundedReply(draft, { ...contract, required: ['request', 'pending'] }), null);
+  test(`語意抽取${label}時不能因價格正確或supported而放行`, () => {
+    const text = `${candidate}${claim}`;
+    assert.equal(check(text, contract, { ...report(text), actions: [{ kind, mode, evidence: claim }] }), false);
   });
 }
 
-test('placeholder兩側或標點間不能重組核准片語而改變事實含意', () => {
-  const booking = { ...contract, required: ['request', 'pending'] };
-  assert.equal(renderGroundedReply('不{{pending}}客氣。{{request}}', booking), null);
-  assert.equal(renderGroundedReply('了{{quote}}解', contract), null);
-  assert.equal(renderGroundedReply('不，客氣{{pending}}。{{request}}', booking), null);
+test('固定待Harris確認可作例外原子值，反轉或否定不能通過核驗', () => {
+  const pending: SemanticFact = { kind: 'requires_harris', service: null, length: null, audience: null, value: 'booking', polarity: 'affirmed' };
+  const policy: NaturalContract = { topic: 'booking', atoms: { pending: '這個時段需由 Harris 確認，請稍等唷' }, requiredAtoms: ['pending'], allowedFacts: [pending], requiredFacts: [pending], allowedQuestions: [], requiredQuestions: [] };
+  const good = '週六兩點的染髮需求我理解了。{{pending}}';
+  const rendered = '週六兩點的染髮需求我理解了。這個時段需由 Harris 確認，請稍等唷';
+  assert.equal(render(good, policy), rendered);
+  assert.equal(check(rendered, policy, report(rendered, [pending])), true);
+  const reversed = '這個時段需由 Harris 確認，請稍等唷才怪。';
+  assert.equal(render('{{pending}}才怪。', policy), reversed, '原子檢查本身不是語意黑名單');
+  assert.equal(check(reversed, policy, report(reversed, [{ ...pending, polarity: 'negated' }])), false);
+  assert.equal(check(reversed, policy, { ...report(reversed, [pending]), verdict: 'unsupported', issues: ['contradicted_confirmation'] }), false);
 });
 
-test('未審閱的其他自由句即使看似日常也不當成安全銜接語', () => {
-  assert.equal(renderGroundedReply('{{quote}}，這看起來真好', contract), null);
-  assert.equal(renderGroundedReply('{{quote}}，下雨真好', contract), null);
+test('一般營業時間不能被抽成特定日開店或否定原事實', () => {
+  const hours: SemanticFact = { kind: 'general_hours', service: null, length: null, audience: null, value: '11:00–18:00', polarity: 'affirmed' };
+  const policy: NaturalContract = { topic: 'hours', atoms: { hours: '11:00–18:00' }, requiredAtoms: ['hours'], allowedFacts: [hours], requiredFacts: [hours], allowedQuestions: [], requiredQuestions: [] };
+  const text = '明天照常營業，時段是 11:00–18:00。';
+  assert.equal(check(text, policy, report(text, [{ ...hours, kind: 'other', value: 'tomorrow_open' }])), false);
+  assert.equal(check(text, policy, report(text, [{ ...hours, polarity: 'negated' }])), false);
 });
 
-test('必要事實刪除、重複或擅自加未知片段時不產生客人回覆', () => {
-  for (const draft of ['了解喔～', '{{quote}}{{quote}}', '{{quote}} {{unknown}}', '{{quote}} {{toString}}']) {
-    assert.equal(renderGroundedReply(draft, contract), null, draft);
+test('缺少必須事實、未完整核驗、不確定、帶issues與冒充Harris均保守拒絕', () => {
+  for (const patch of [
+    { facts: [] }, { facts: [{ ...newPrice, evidence: candidate }] }, { complete: false }, { verdict: 'uncertain' },
+    { verdict: 'unsupported' }, { issues: ['unreviewed_statement'] }, { persona: 'harris' }, { persona: 'uncertain' },
+  ]) assert.equal(check(candidate, contract, { ...report(candidate), ...patch }), false);
+});
+
+test('核驗報告必須schema正確，不接受額外safe=true或超量/缺漏欄位', () => {
+  for (const bad of [null, true, { safe: true }, { ...report(candidate), safe: true }, { ...report(candidate), complete: 'true' }, { ...report(candidate), actions: [{ kind: 'notify', mode: 'maybe', evidence: candidate }] }, { ...report(candidate), facts: Array(40).fill({ ...newPrice, evidence: candidate }) }]) {
+    assert.equal(check(candidate, contract, bad), false);
   }
 });
 
-test('可用非必填片段最多一次，問句與網址只從本次核准片段插入', () => {
-  assert.equal(renderGroundedReply('{{quote}}。{{ask_length}}', contract),
-    'L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）。頭髮目前大約到肩上、胸上，還是胸下呢？');
-  assert.equal(renderGroundedReply('{{quote}}。{{booking_link}}', contract),
-    'L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）。https://harrishair.tw');
-  assert.equal(renderGroundedReply('{{quote}}{{booking_link}}{{booking_link}}', contract), null);
-});
-
-test('破損或變形 placeholder 不容許留下原樣或被靜默刪去', () => {
-  for (const draft of ['{{quote}} {{quote }', '{{quote}} {pending}', '{{quote}} {{QUOTE}}', '{{quote}} {{ quote }}', '{{quote}} ｛｛pending｝｝']) {
-    assert.equal(renderGroundedReply(draft, contract), null, draft);
+test('每個fact與question的evidence須在實際候選句中存在，不能空白或只截數字', () => {
+  for (const evidence of ['', ' ', '不在候選句的價格', '2,780', '胸上就是 L 囉']) {
+    const review = report(candidate); review.facts[0]!.evidence = evidence;
+    assert.equal(check(candidate, contract, review), false, evidence);
   }
+  const thanks: NaturalContract = { topic: 'thanks', atoms: {}, requiredAtoms: [], allowedFacts: [], requiredFacts: [], allowedQuestions: [], requiredQuestions: [] };
+  assert.equal(check('謝謝囉', thanks, { ...report('謝謝囉', []), questions: [{ slot: 'time', evidence: '假的問題' }] }), false);
 });
 
-test('有誤的必填合約與巢狀片段拒絕輸出，不從原型尋找內容', () => {
-  assert.equal(renderGroundedReply('{{quote}}', { ...contract, required: ['unknown'] }), null);
-  assert.equal(renderGroundedReply('{{quote}}', { ...contract, required: ['quote', 'quote'] }), null);
-  assert.equal(renderGroundedReply('{{quote}}', { claims: { quote: '{{pending}}' }, required: ['quote'] }), null);
+test('未知facts與未被允許的額外問題不能混入正確報價', () => {
+  const extra: SemanticFact = { kind: 'other', service: null, length: null, audience: null, value: 'no_deposit', polarity: 'affirmed' };
+  assert.equal(check(candidate, contract, report(candidate, [newPrice, memberPrice, extra])), false);
+  assert.equal(check(candidate, contract, { ...report(candidate), questions: [{ slot: 'time', evidence: candidate }] }), false);
 });
 
-test('自由文字不能加錯價、再次折扣、服務內容或日期營業事實', () => {
-  for (const suffix of ['新客再打八折喔', '會員只要二千元', '原價三千五', '含洗剪護髮', '頭髮是L長度', '週六營業', '11:00–18:00', '下午可以', '免訂金', '明天照常開']) {
-    assert.equal(renderGroundedReply(`{{quote}}，${suffix}`, contract), null, suffix);
-  }
+test('原子值必填、未知、重複、原型key與破損placeholder均拒絕', () => {
+  for (const draft of ['新客{{price_new}}', '{{price_new}}{{price_member}}{{price_new}}', '{{price_new}}{{price_member}}{{unknown}}', '{{price_new}}{{price_member}}{{toString}}', '{{price_new}}{{price_member}} {pending}', '{{price_new}}{{price_member}} {{PRICE_NEW}}', '{{price_new}}{{price_member}} ｛｛price_new｝｝']) assert.equal(render(draft), null, draft);
 });
 
-test('自由文字不能聲稱備註通知、登記、完成訂位或保留空檔', () => {
-  for (const suffix of ['已幫你通知Harris', '已備註', '已登記', '完成預約', '預約成功', '幫你保留', '這時段有空可以約', '我會幫你處理', '直接過來就好']) {
-    assert.equal(renderGroundedReply(`{{quote}}，${suffix}`, contract), null, suffix);
-  }
+test('不能在原子外另打錯價、Unicode數字、網址或中文貨幣金額', () => {
+  for (const suffix of ['其實2224元', '２２２４元', '二千元', '一元', '再打八折', 'https://evil.invalid', 'www.evil.invalid']) assert.equal(render(`新客{{price_new}}、會員{{price_member}}。${suffix}`), null, suffix);
 });
 
-test('不能以省略預約字樣的口語承諾放行空檔或免單', () => {
-  for (const suffix of ['可以約喔', '那天可以來', '能來喔', '免單喔', '全部都可以']) {
-    assert.equal(renderGroundedReply(`{{quote}}，${suffix}`, contract), null, suffix);
-  }
+test('URL只從允許的原子值插入，普通英文Harris與L不被當成違規說法', () => {
+  const policy: NaturalContract = { topic: 'booking_link', atoms: { booking_url: 'https://harrishair.tw' }, requiredAtoms: ['booking_url'], allowedFacts: [], requiredFacts: [], allowedQuestions: [], requiredQuestions: [] };
+  const draft = 'Harris 的預約頁在這邊：{{booking_url}}，你可以自行挑方便的時段。';
+  assert.equal(render(draft, policy), 'Harris 的預約頁在這邊：https://harrishair.tw，你可以自行挑方便的時段。');
 });
 
-test('不能在核准事實外否定片段、增加無證據保證或重複助手身份', () => {
-  for (const suffix of ['不用理會', '不對', '這些作廢', '保證沒問題', '我本人幫你', '我是AI小幫手', '我是Harris']) {
-    assert.equal(renderGroundedReply(`{{quote}}，${suffix}`, contract), null, suffix);
-  }
+test('隱藏字元、巢狀原子、無界文字與不合約定的emoji仍有機械界線', () => {
+  for (const draft of ['{{price_new}}{{price_member}}\u200b', '{{price_new}}{{price_member}}\u202e', '{{price_new}}{{price_member}}\u0000', '{{price_new}}{{price_member}}😊😊', '{{price_new}}{{price_member}}👎', '啊'.repeat(1300) + '{{price_new}}{{price_member}}']) assert.equal(render(draft), null);
+  assert.equal(render('{{price_new}}{{price_member}}', { ...contract, atoms: { ...contract.atoms, price_new: '{{nested}}' } }), null);
+  assert.equal(render('', { ...contract, atoms: {}, requiredAtoms: [] }), null);
 });
 
-test('核准片段外的否定標記不能反轉事實，固定禮貌語不客氣仍可用', () => {
-  for (const [draft, required] of [
-    ['不需要{{pending}}', 'pending'],
-    ['沒有{{quote}}', 'quote'],
-    ['不能{{request}}', 'request'],
-    ['無{{quote}}', 'quote'],
-    ['並非{{quote}}', 'quote'],
-    ['未{{pending}}', 'pending'],
-    ['没有{{quote}}', 'quote'],
-    ['无{{quote}}', 'quote'],
-  ] as const) {
-    assert.equal(renderGroundedReply(draft, { ...contract, required: [required] }), null, draft);
-  }
-  assert.equal(renderGroundedReply('不客氣～{{quote}} 😊', contract),
-    '不客氣～L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額） 😊');
-});
-
-test('只能使用本次允許的問句與連結，不能自由追加預約追問或其他網址', () => {
-  for (const suffix of ['想預約嗎？', '你想什麼時候?', 'https://evil.invalid', 'www.evil.invalid', '@evil']) {
-    assert.equal(renderGroundedReply(`{{quote}}，${suffix}`, contract), null, suffix);
-  }
-});
-
-test('省略問號的額外追問也只能由核准缺項片段提出', () => {
-  for (const suffix of ['想做什麼', '還有需要嗎', '你比較喜歡哪個', '是否要其他的', '你覺得呢']) {
-    assert.equal(renderGroundedReply(`{{quote}}，${suffix}`, contract), null, suffix);
-  }
-});
-
-test('HTML、程式碼與隱藏控制字元不通過，正常換行可保留', () => {
-  for (const draft of ['<>{{quote}}', '`{{quote}}`', '[{{quote}}]', '{{quote}}\u200b', '{{quote}}\u202e', '{{quote}}\u0000', '{{quote}}\u001b']) {
-    assert.equal(renderGroundedReply(draft, contract), null, JSON.stringify(draft));
-  }
-  assert.equal(renderGroundedReply('好呀～\n{{quote}}', contract),
-    '好呀～\nL 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）');
-});
-
-test('全形數字、全形英字與貨幣符號不能繞過敏感內容邊界', () => {
-  for (const suffix of ['２７８０', 'ＡＩ', '￥', '＄', 'Ⅳ']) {
-    assert.equal(renderGroundedReply(`{{quote}} ${suffix}`, contract), null, suffix);
-  }
-});
-
-test('填入事實後整則最多一個emoji，包含片段內的emoji及旗幟', () => {
-  assert.equal(renderGroundedReply('{{quote}} 😊😊', contract), null);
-  assert.equal(renderGroundedReply('{{quote}} 🇹🇼🇯🇵', contract), null);
-  const withEmoji = { claims: { handoff: '收到，稍等一下 😊' }, required: ['handoff'] };
-  assert.equal(renderGroundedReply('{{handoff}} 🙂', withEmoji), null);
-  assert.equal(renderGroundedReply('{{handoff}}', withEmoji), '收到，稍等一下 😊');
-});
-
-test('自由emoji也只能用核准友善表情，不能反轉待確認片段', () => {
-  const booking = { ...contract, required: ['request', 'pending'] };
-  for (const face of ['👎', '🙅', '❌']) assert.equal(renderGroundedReply(`{{request}}。{{pending}} ${face}`, booking), null);
-});
-
-test('拒絕無界自由文字或事實結果，沒有片段的簡短收尾仍可自然保留', () => {
-  assert.equal(renderGroundedReply('了解'.repeat(91) + '{{quote}}', contract), null);
-  assert.equal(renderGroundedReply('了解'.repeat(90) + '{{quote}}', contract),
-    '了解'.repeat(90) + 'L 胸上染髮，新客 2,780 元、會員 2,910 元（價目表已折後金額）');
-  assert.equal(renderGroundedReply('～'.repeat(801) + '{{quote}}', contract), null);
-  assert.equal(renderGroundedReply('{{quote}}', { claims: { quote: '嗯'.repeat(1501) }, required: ['quote'] }), null);
-  assert.equal(renderGroundedReply('', { claims: {}, required: [] }), null);
-  assert.equal(renderGroundedReply('不客氣～有需要再跟我說 😊', { claims: {}, required: [] }), '不客氣～有需要再跟我說 😊');
+test('價格evidence必須包含同一完整金額，不能用其他金額的子字串偽證', () => {
+  const haircut: SemanticFact = { kind: 'price', service: '剪髮', length: null, audience: null, value: '700', polarity: 'affirmed' };
+  const policy: NaturalContract = { topic: 'price', atoms: { haircut: '700' }, requiredAtoms: ['haircut'], allowedFacts: [haircut], requiredFacts: [haircut], allowedQuestions: [], requiredQuestions: [] };
+  const wrong = '剪髮是2700元喔。';
+  assert.equal(check(wrong, policy, report(wrong, [haircut])), false);
+  const right = '剪髮是700元喔。';
+  assert.equal(check(right, policy, report(right, [haircut])), true);
 });

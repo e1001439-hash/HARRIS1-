@@ -20,7 +20,8 @@ const failureHints: Record<AiFailureCode, string> = {
 };
 function formatPreview(result: AiResult, calledAi: boolean): string {
   const booking = { none: '無預約需求', requested: '僅收到需求，尚未確認預約', self_reported: '自述已預約，尚待核實' }[result.bookingStatus];
-  return `${header}${calledAi ? '本次 AI 分析成功' : '規則直接轉人工，未呼叫 AI'}\n\n預計回覆：\n${result.reply.slice(0, 2200)}\n\n判斷：${result.needsHuman ? '需要本人處理' : '可初步回覆'}\n預約：${booking}\n項目：${result.service ?? '未指定'}\n希望時間：${result.requestedTime ?? '未指定'}\n下一步：${result.nextAction.slice(0, 300)}`;
+  const source = !calledAi ? '規則直接轉人工，未呼叫 AI' : result.replySource === 'natural_verified' ? '自然草稿通過模型語意核驗，尚未經真人確認' : '使用安全簡答，未採用自然草稿';
+  return `${header}${source}\n\n預計回覆：\n${result.reply.slice(0, 2200)}\n\n判斷：${result.needsHuman ? '需要本人處理' : '可初步回覆'}\n預約：${booking}\n項目：${result.service ?? '未指定'}\n希望時間：${result.requestedTime ?? '未指定'}\n下一步：${result.nextAction.slice(0, 300)}`;
 }
 export async function handleOwnerPreview(options: { config: Config; store: Store; ai: AiClient; knowledge: string; facts?: SalonFacts }, job: EventJob): Promise<string> {
   const { config } = options;

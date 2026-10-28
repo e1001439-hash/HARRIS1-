@@ -10,16 +10,16 @@ import { loadFacts } from '../src/knowledge.js';
 import { Store } from '../src/store.js';
 import { Worker } from '../src/worker.js';
 import { createTestDatabase } from './database.js';
-import type { AiInput, AiResult, LineEvent } from '../src/types.js';
+import type { AiClient, AiInput, AiResult, LineEvent } from '../src/types.js';
 
 const owner = `U${'1'.repeat(32)}`, customer = `U${'2'.repeat(32)}`;
 const answer: AiResult = { reply: '模型不可信原文500元，已預約成功。', summary: '', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
 const facts = await loadFacts('knowledge/facts.json');
-async function fixture(dataDir?: string, generate: (input: AiInput) => Promise<AiResult> = async () => answer) {
+async function fixture(dataDir?: string, generate: (input: AiInput) => Promise<AiResult> = async () => answer, verify?: NonNullable<AiClient['verify']>) {
   const db = await createTestDatabase(dataDir), store = new Store(db);
   const config = loadConfig({ DATABASE_URL: 'local-fake', LINE_CHANNEL_SECRET: 'preview-test-only', LINE_CHANNEL_ACCESS_TOKEN: 'fake', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer, RESPONSE_MODE: 'ai', SALON_AI_API_KEY: 'fake', AI_MODEL: 'fake' });
   const calls: AiInput[] = [], replies: { token: string; text: string }[] = [], pushes: string[] = [];
-  const worker = new Worker({ store, config, facts, knowledge: '只使用核准店務資料', ai: { async generate(input) { calls.push(input); return generate(input); } }, line: { async reply(token, text) { replies.push({ token, text }); }, async push(_to, text) { pushes.push(text); } } });
+  const worker = new Worker({ store, config, facts, knowledge: '只使用核准店務資料', ai: { async generate(input) { calls.push(input); return generate(input); }, ...(verify ? { verify } : {}) }, line: { async reply(token, text) { replies.push({ token, text }); }, async push(_to, text) { pushes.push(text); } } });
   const app = createApp({ config, store });
   const event = (id: string, text: string, userId = owner): LineEvent => ({ type: 'message', webhookEventId: id, timestamp: Date.now(), replyToken: `reply-${id}`, source: { type: 'user', userId }, message: { type: 'text', text } });
   const inject = async (e: LineEvent, valid = true) => {
@@ -36,7 +36,7 @@ test('店主預覽共用核准價格與預約政策，空歷史且不建立待�
     await f.store.setHandoff(owner, true); await f.store.setHandoff(customer, true);
     const before = (await f.db.query('SELECT user_id,handoff,handoff_revision FROM sessions ORDER BY user_id')).rows;
     const text = await f.send('price', '/preview 剪髮多少錢？');
-    assert.match(text, /店主.*預覽/); assert.match(text, /700\s*元/); assert.match(text, /AI.*成功/);
+    assert.match(text, /店主.*預覽/); assert.match(text, /700\s*元/); assert.match(text, /安全簡答.*未採用自然草稿/); assert.doesNotMatch(text, /AI.*成功/);
     assert.match(text, /不代表.*端到端/); assert.doesNotMatch(text, /500|已預約成功/);
     assert.equal(f.calls.length, 1); assert.equal(f.calls[0]!.text, '剪髮多少錢？'); assert.deepEqual(f.calls[0]!.history, []);
     assert.match(f.calls[0]!.knowledge, /700/);
@@ -95,12 +95,27 @@ test('規則直接接手與未知問題預覽分清是否呼叫AI，錯誤不洩
     const rule = await f.send('rule', '/preview 我漂髮後頭皮過敏');
     assert.match(rule, /未呼叫\s*AI/); assert.match(rule, /本人/); assert.equal(f.calls.length, 0);
     const unknown = await f.send('unknown', '/preview 你們的地址在哪？');
-    assert.match(unknown, /AI.*成功/); assert.match(unknown, /本人/); assert.doesNotMatch(unknown, /500/);
+    assert.match(unknown, /安全簡答.*未採用自然草稿/); assert.match(unknown, /本人/); assert.doesNotMatch(unknown, /500/);
     await f.db.query("UPDATE events SET owner_preview_started_at=clock_timestamp()-interval '11 seconds'");
     fail = true; const failed = await f.send('failed', '/preview 剪髮多少？');
     assert.match(failed, /UNAVAILABLE/); assert.doesNotMatch(failed, new RegExp(secret));
     assert.equal((await f.store.listTasks()).length, 0); assert.equal(f.pushes.length, 0);
     assert.equal(JSON.stringify((await f.db.query('SELECT payload,outcome FROM events')).rows).includes(secret), false);
+  } finally { await f.close(); }
+});
+
+test('店主預覽區分已核驗自然原句與fallback，不冒充真人核准', async () => {
+  let reviews = 0;
+  const f = await fixture(undefined, async () => ({ ...answer, reply: '剪髮的費用是{{price}}元喔 😊' }), async ({ candidate }) => {
+    reviews++;
+    return { verdict: 'supported', complete: true, facts: [{ kind: 'price', service: '剪髮', length: null, audience: null, value: '700', polarity: 'affirmed', evidence: candidate }],
+      questions: [], actions: [], persona: 'assistant', issues: [] };
+  });
+  try {
+    const text = await f.send('verified-preview', '/預覽 剪髮多少錢？');
+    assert.match(text, /自然草稿通過模型語意核驗.*尚未經真人確認/);
+    assert.match(text, /剪髮的費用是700元喔 😊/); assert.doesNotMatch(text, /安全簡答/);
+    assert.equal(reviews, 1); assert.equal(f.pushes.length, 0); assert.equal((await f.store.listTasks()).length, 0);
   } finally { await f.close(); }
 });
 

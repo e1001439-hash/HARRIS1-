@@ -2,7 +2,6 @@ import { validateAnswer } from './clients/ai.js';
 import type { AiInput, AiResult } from './types.js';
 import { emptyFacts, type SalonFacts } from './knowledge.js';
 import { resolveDialogueContext, type DialogueContext } from './dialogue-context.js';
-import { renderGroundedReply, type ReplyContract } from './reply-guard.js';
 
 export const humanRequired = (text: string) => /真人|本人|人工|髮型師|客訴|退款|過敏|頭皮受傷|染黑|受損|漂髮|漂頭髮/.test(text);
 const priceQuestion = (text: string) => /價格|費用|多少|價錢|報價|收費|怎麼算|價目表|價單/.test(text);
@@ -35,7 +34,9 @@ export function extractRequest(value: unknown, text: string, history: AiInput['h
   const requestedTime = fields.requestedTime;
   return { ...answer, ...fields, requestedTime, summary: text.slice(0, 500), nextAction: fields.bookingStatus === 'none' ? '請 Harris 查看本則補充' : '僅整理需求，時段與預約均待 Harris 確認' };
 }
-export interface DialoguePlan extends ReplyContract {
+export interface DialoguePlan {
+  claims: Record<string, string>;
+  required: string[];
   topic: string;
   missing: string[];
   result: AiResult;
@@ -113,6 +114,7 @@ export function applyPolicy(value: unknown, text: string, _knowledge: string, bo
   const answer = validateAnswer(value);
   const plan = prepared ?? buildReplyPlan(text, bookingUrl, facts, history);
   if (answer.needsHuman && !plan.result.needsHuman) return { ...humanFallback(text, 'AI 判斷仍需 Harris 確認'), service: plan.result.service };
-  const reply = renderGroundedReply(answer.reply, plan) ?? plan.result.reply;
-  return { ...plan.result, reply };
+  // This synchronous path is the approved safety fallback. A natural draft is
+  // sent only by analyzeMessage after independent semantic verification.
+  return { ...plan.result };
 }

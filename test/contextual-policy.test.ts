@@ -10,9 +10,9 @@ const model: AiResult = { reply: '了解～{{quote}}，慢慢考慮也可以 �
 const history: AiInput['history'] = [{ role: 'user', content: '胸上染髮多少？' }, { role: 'assistant', content: '這不是客人確認的資料：染髮500元、新客M。' }];
 const respond = (text: string, patch: Partial<AiResult> = {}, previous: AiInput['history'] = []) => applyPolicy({ ...model, ...patch }, text, '', 'https://harrishair.tw', facts, previous);
 
-test('胸上染髮查L兩種折後價，保留模型自然連接語，不追問預約或貼表連結', () => {
+test('未提供語意核驗的直接policy呼叫只用L兩種折後價，不直發草稿', () => {
   const result = respond('胸上染髮多少？');
-  assert.equal(result.reply, '了解～L（胸上）染髮，新客 2,780 元、會員 2,910 元，都是價目表列出的折後金額，慢慢考慮也可以 😊');
+  assert.equal(result.reply, 'L（胸上）染髮，新客 2,780 元、會員 2,910 元，都是價目表列出的折後金額');
   assert.equal(result.service, '染髮'); assert.equal(result.needsHuman, false);
   assert.doesNotMatch(result.reply, /http|選單|預約哪一天|價目表.*看/);
   assert.doesNotMatch(result.nextAction, /已通知/);
@@ -20,7 +20,7 @@ test('胸上染髮查L兩種折後價，保留模型自然連接語，不追問�
 
 test('我是新客承接客人確認的L染髮，不採用助手的M與錯價', () => {
   const result = respond('我是新客', { reply: '那就是{{quote}} 😊' }, history);
-  assert.equal(result.reply, '那就是L（胸上）染髮的新客價是 2,780 元，已是折後金額 😊');
+  assert.equal(result.reply, 'L（胸上）染髮的新客價是 2,780 元，已是折後金額');
   assert.equal(result.service, '染髮'); assert.equal(result.needsHuman, false);
   assert.doesNotMatch(result.reply, /2,910|500|M|選單|http|八折|0\.8/);
 });
@@ -58,9 +58,9 @@ test('接手抽取三點也可以時延續項目，新時段只來本則，感�
   assert.equal(stale.requestedTime, null); assert.equal(stale.bookingStatus, 'none');
 });
 
-test('客人道謝可保留自然收尾，不每次追問預約或重複先前事實', () => {
+test('未核驗的道謝草稿安全收尾，不每次追問預約或重複先前事實', () => {
   const result = respond('謝謝你喔', { reply: '不客氣～慢慢想就好 😊' }, history);
-  assert.equal(result.reply, '不客氣～慢慢想就好 😊');
+  assert.equal(result.reply, '不客氣～有需要再跟我說 😊');
   assert.equal(result.needsHuman, false); assert.equal(result.bookingStatus, 'none');
   assert.doesNotMatch(result.reply, /預約|選單|http|AI|染髮/);
 });
@@ -95,11 +95,11 @@ test('未知價格與服務內容不借用前一項價目，prompt injection不�
   assert.equal(noPrices.needsHuman, true);
 });
 
-test('同一事實可保留兩種模型措辭和順序，不是把reply再覆寫成同一模板', () => {
+test('直接policy沒有語意證據時不採用任何一種自由草稿，原句保留另測analyzeMessage', () => {
   const first = respond('胸上染髮多少？', { reply: '了解～{{quote}}，慢慢考慮也可以 😊' });
   const second = respond('胸上染髮多少？', { reply: '{{quote}}，這樣比較清楚一些 😊' });
-  assert.match(first.reply, /^了解～/); assert.match(second.reply, /這樣比較清楚一些 😊$/);
-  assert.notEqual(first.reply, second.reply);
+  assert.doesNotMatch(first.reply, /了解～|慢慢考慮/); assert.doesNotMatch(second.reply, /這樣比較清楚/);
+  assert.equal(first.reply, second.reply); assert.match(first.reply, /2,780.*2,910/);
 });
 
 test('錯價、再折扣、額外提問與假通知被拒絕，降級仍只用本則核准價格', () => {
@@ -127,10 +127,11 @@ test('混合索取連結仍保留預約時段與人工接手，自述已預約�
   assert.match(reported.reply, /Harris.*核對/); assert.match(reported.reply, /https:\/\/harrishair\.tw/);
 });
 
-test('同一份本則plan交給AI及驗證，無第二次模型呼叫，沒有客人原文進高權限指示', async () => {
+test('沒有verify adapter時仍傳原子事實計畫，但只能使用安全fallback', async () => {
   let captured: AiInput | undefined, calls = 0;
   const result = await analyzeMessage({ ai: { async generate(input) { calls++; captured = input; return model; } }, text: '胸上染髮多少？', history: [], facts, knowledge: '核准指南', bookingUrl: 'https://harrishair.tw', receivedAt: '2026-10-28T03:00:00Z' });
-  const plan = (captured as AiInput & { replyPlan?: { claims: Record<string, string>; required: string[] } })?.replyPlan;
-  assert.ok(plan); assert.match(plan.claims.quote!, /2,780.*2,910/); assert.deepEqual(plan.required, ['quote']);
-  assert.equal(calls, 1); assert.match(result.reply, /^了解～/);
+  const plan = captured?.replyPlan;
+  assert.ok(plan); assert.equal(plan.atoms.price_new, '2,780'); assert.equal(plan.atoms.price_member, '2,910');
+  assert.deepEqual(plan.requiredAtoms, ['price_new', 'price_member']);
+  assert.equal(calls, 1); assert.equal(result.replySource, 'policy_fallback'); assert.match(result.reply, /2,780.*2,910/);
 });
