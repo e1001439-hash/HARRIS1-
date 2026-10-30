@@ -8,6 +8,7 @@ import { handleOwnerPreview, isPreviewCommand } from './preview.js';
 import type { SalonFacts } from './knowledge.js';
 import { NotificationWorker } from './notification-worker.js';
 import { isPairingCommand, type PairingService } from './pairing.js';
+import { forwardToRelay } from './clients/relay.js';
 
 interface Options { store: Store; config: Config; line: LineClient; ai: AiClient; knowledge: string; facts?: SalonFacts; lane?: 'owner' | 'customer'; onNotificationIssue?: (issue: Record<string, unknown>) => void; pairing?: PairingService }
 async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -50,6 +51,13 @@ export class Worker {
     if (job.previouslySending || job.attempts >= 3) {
       outcome = { ...humanFallback(text, '上次處理中斷，請檢查是否已回覆，避免重複傳送'), reply: '', delivery: job.previouslySending ? 'unknown' : 'not_sent', skipTask: isOwner, preserveHandoff: handoff, privateSetup };
       await store.finishEvent(job, outcome, config.ownerId); return;
+    }
+    if (!isOwner && config.customerReplyMode === 'relay') {
+      // Never auto-reply to customers in relay mode; the drafting service will
+      // push an owner-approved reply via POST /send. Failure => lease retry (max 3).
+      await forwardToRelay(config, line, job);
+      await store.finishEvent(job, { ...humanFallback(text, '已轉交 Grok Bot 草擬回覆，待 Harris 核准'), reply: '', delivery: 'not_sent', preserveHandoff: true }, config.ownerId);
+      return;
     }
     if (isOwner) result = { reply: preview ? await handleOwnerPreview(this.options, job) : await handleOwnerCommand(text, store, this.options.pairing, job), summary: '店主管理操作', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
     else if (!await store.isLatestEvent(job)) {

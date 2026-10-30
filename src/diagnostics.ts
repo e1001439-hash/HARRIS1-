@@ -2,7 +2,7 @@ import { ZodError } from 'zod';
 
 const stages = ['environment', 'configuration', 'knowledge', 'facts', 'database_configuration', 'database_migration', 'clients', 'runtime', 'unknown'] as const;
 export type StartupStage = typeof stages[number];
-export const configFields = ['PORT', 'DATABASE_URL', 'LINE_CHANNEL_SECRET', 'LINE_CHANNEL_ACCESS_TOKEN', 'OWNER_LINE_USER_ID', 'TEST_LINE_USER_IDS', 'BOT_MODE', 'RESPONSE_MODE', 'SALON_AI_API_KEY', 'AI_MODEL', 'KNOWLEDGE_PATH', 'BOOKING_URL', 'PUBLIC_SITE_URL'] as const;
+export const configFields = ['PORT', 'DATABASE_URL', 'LINE_CHANNEL_SECRET', 'LINE_CHANNEL_ACCESS_TOKEN', 'OWNER_LINE_USER_ID', 'TEST_LINE_USER_IDS', 'BOT_MODE', 'RESPONSE_MODE', 'SALON_AI_API_KEY', 'AI_MODEL', 'KNOWLEDGE_PATH', 'BOOKING_URL', 'PUBLIC_SITE_URL', 'CUSTOMER_REPLY_MODE', 'RELAY_URL', 'RELAY_SECRET_HEADER', 'RELAY_SECRET', 'SEND_API_SECRET', 'OWNER_LINE_NOTIFY', 'POLL_IDLE_MS'] as const;
 export type ConfigField = typeof configFields[number];
 const databaseCodes = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENETUNREACH', 'EHOSTUNREACH', 'ERR_TLS_CERT_ALTNAME_INVALID', 'CERT_HAS_EXPIRED', 'CERT_NOT_YET_VALID', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'SELF_SIGNED_CERT_IN_CHAIN', 'UNABLE_TO_GET_ISSUER_CERT_LOCALLY', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'ERR_SSL_WRONG_VERSION_NUMBER', 'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION', '28P01', '28000', '3D000', '42501', '42P01', '42703', '42601', '23505', '53300', '57P01', '57P03'] as const;
 const fileCodes = ['ENOENT', 'EACCES', 'EPERM', 'EISDIR', 'ENOTDIR'] as const;

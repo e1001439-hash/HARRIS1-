@@ -14,28 +14,34 @@ export async function startRuntime(options: { db: Database; config: Config; ai: 
   const worker = new Worker({ ...options, store, pairing, lane: 'customer' });
   const ownerWorker = new Worker({ ...options, store, pairing, lane: 'owner' });
   const notificationWorker = new NotificationWorker({ ...options, store });
-  const app = createApp({ config, store, pairing });
+  const app = createApp({ config, store, pairing, line: options.line });
   const address = await app.listen({ port: config.port, host: options.host ?? '0.0.0.0' });
   let closed = false;
   let nextCleanup = Date.now() + 3600000;
   let nextPairingCleanup = Date.now() + 60000;
+  const wakers: (() => void)[] = [];
+  store.onIngest = () => { for (const wake of wakers) wake(); };
   const loop = (runner: Pick<Worker, 'tick' | 'stop'>, lane: 'owner' | 'customer' | 'notification') => {
     let stopped = false;
     let active: Promise<void> = Promise.resolve();
     let timer: ReturnType<typeof setTimeout>;
-    const schedule = () => { if (!stopped) timer = setTimeout(() => { active = run(); }, lane === 'customer' ? 250 : 100); };
+    let busyLast = false; let running = false;
+    const wake = () => { if (!stopped && !running) { clearTimeout(timer); timer = setTimeout(() => { active = run(); }, 0); } };
+    wakers.push(wake);
+    const schedule = () => { if (!stopped) timer = setTimeout(() => { active = run(); }, busyLast ? 100 : (config.pollIdleMs ?? 2000)); };
     const run = async () => {
+      running = true;
       try {
-        await runner.tick();
+        busyLast = await runner.tick();
         if (lane === 'customer' && Date.now() >= nextCleanup) { await store.cleanup(); nextCleanup = Date.now() + 3600000; }
         if (lane === 'owner' && Date.now() >= nextPairingCleanup) { await pairing.cleanup(); nextPairingCleanup = Date.now() + 60000; }
       } catch { console.error(JSON.stringify({ event: 'worker_error', message: '背景工作失敗，已保留工作供重試；請檢查服務狀態。' })); }
-      finally { schedule(); }
+      finally { running = false; schedule(); }
     };
     schedule();
     return async () => { stopped = true; clearTimeout(timer); runner.stop(); await active; };
   };
-  const stopCustomer = loop(worker, 'customer'), stopOwner = loop(ownerWorker, 'owner'), stopNotification = loop(notificationWorker, 'notification');
+  const stopCustomer = loop(worker, 'customer'), stopOwner = loop(ownerWorker, 'owner'), stopNotification = config.ownerLineNotify === false ? async () => {} : loop(notificationWorker, 'notification');
   return { app, store, worker, address, async close() {
     if (closed) return; closed = true;
     await app.close(); await Promise.all([stopCustomer(), stopOwner(), stopNotification()]); await db.close();

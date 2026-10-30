@@ -35,6 +35,6 @@ services:
       - key: KNOWLEDGE_PATH
         value: knowledge/salon.md
       - key: BOOKING_URL
-        value: https://g7.zoom-world.tw/Round2HairSalon/index.aspx
+        value: https://harrishair.tw/
       - key: PUBLIC_SITE_URL
         value: https://harrishair.tw/

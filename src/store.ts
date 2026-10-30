@@ -26,6 +26,8 @@ const taskFrom = (row: TaskRow): Task => ({
 });
 
 export class Store {
+  /** In-process wake-up so idle polling can be slow without adding latency. */
+  onIngest?: () => void;
   constructor(private readonly db: Database) {}
 
   async ping(): Promise<void> { await this.db.query('SELECT 1'); }
@@ -59,6 +61,7 @@ export class Store {
           formatReceipt({ customerRef: session.rows[0]!.customer_ref, receivedAt, text, taskId }), randomUUID()]);
       }
     });
+  this.onIngest?.();
   }
 
   async isLatestEvent(job: EventJob): Promise<boolean> {

@@ -21,7 +21,12 @@ export function postgresOptions(connectionString: string): PoolConfig {
 /** A transaction always uses the same checked-out PostgreSQL connection. */
 export class PgDatabase implements Database {
   private readonly pool: Pool;
-  constructor(connectionString: string) { this.pool = new Pool(postgresOptions(connectionString)); }
+  constructor(connectionString: string) {
+    this.pool = new Pool(postgresOptions(connectionString));
+    // Without a listener, an idle-client error (DB restart, network reset) is
+    // an unhandled 'error' event and kills the process with exit code 1.
+    this.pool.on('error', () => console.error(JSON.stringify({ event: 'db_idle_client_error' })));
+  }
 
   async query<T>(sql: string, values?: unknown[]): Promise<{ rows: T[]; rowCount: number | null }> {
     try {
