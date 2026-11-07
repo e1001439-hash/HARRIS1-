@@ -23,6 +23,9 @@ test('LINE distinguishes definitive refusal from uncertain delivery and accepts 
   await assert.rejects(() => error(503).then(x => x.reply('x', 'x')), (e: unknown) => e instanceof DeliveryError && e.delivery === 'unknown');
   const duplicate = new HttpLineClient('secret', async () => new Response('', { status: 409, headers: { 'x-line-accepted-request-id': 'accepted' } }));
   await duplicate.push('owner', 'x', 'retry');
+  const token = 'secret-token-value';
+  const limited = new HttpLineClient(token, async () => new Response(`{"message":"monthly limit","echo":"${token}"}`, { status: 429 }));
+  await assert.rejects(() => limited.push('owner', 'x', 'retry'), (e: unknown) => e instanceof DeliveryError && e.delivery === 'failed' && e.status === 429 && e.body?.includes('monthly limit') && !e.body.includes(token) && !e.message.includes('monthly') && !e.message.includes(token));
 });
 test('OpenAI uses bounded structured output, untrusted customer input and no remote response storage', async () => {
   let body: any;

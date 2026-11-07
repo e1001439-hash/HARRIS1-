@@ -9,7 +9,7 @@ export interface Config {
   lineSecret: string; lineToken: string; ownerId: string; testUserIds: string[];
   aiKey?: string; aiModel?: string; knowledgePath: string; bookingUrl: string; publicSiteUrl: string;
   customerReplyMode?: 'auto' | 'relay'; relayUrl?: string; relaySecretHeader?: string; relaySecret?: string;
-  sendApiSecret?: string; ownerLineNotify?: boolean; pollIdleMs?: number;
+  sendApiSecret?: string; ownerLineNotify?: boolean; ownerNotifyEnabled: boolean; pollIdleMs?: number;
 }
 export interface AiResult {
   reply: string; summary: string; service: string | null; requestedTime: string | null;

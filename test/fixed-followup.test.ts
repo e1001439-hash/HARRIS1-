@@ -17,7 +17,7 @@ import type { Database } from '../src/types.js';
 import { createTestDatabase } from './database.js';
 
 const owner = `U${'1'.repeat(32)}`, customer = `U${'2'.repeat(32)}`;
-const settings = { DATABASE_URL: 'local-fixed-followup-only', LINE_CHANNEL_SECRET: 'fake-fixed-followup-secret', LINE_CHANNEL_ACCESS_TOKEN: 'fake-token', OWNER_LINE_USER_ID: owner };
+const settings = { DATABASE_URL: 'local-fixed-followup-only', LINE_CHANNEL_SECRET: 'fake-fixed-followup-secret', LINE_CHANNEL_ACCESS_TOKEN: 'fake-token', OWNER_LINE_USER_ID: owner, OWNER_NOTIFY_ENABLED: 'true' };
 interface Observation { to: string; text: string; key: string }
 function observations() {
   const replies: { token: string; text: string }[] = [], attempts: Observation[] = [], delivered: Observation[] = [], issues: Record<string, unknown>[] = [];

@@ -16,7 +16,7 @@ export async function startDemo(options: { dataDir?: string; outboxPath?: string
   const db = await createEmbeddedDatabase(dataDir);
   try {
     await migrate(db);
-    const config = loadConfig({ DATABASE_URL: 'local-demo', LINE_CHANNEL_SECRET: DEMO_SECRET, LINE_CHANNEL_ACCESS_TOKEN: 'demo-only-not-a-real-token', OWNER_LINE_USER_ID: DEMO_OWNER_ID, TEST_LINE_USER_IDS: DEMO_CUSTOMER_ID, RESPONSE_MODE: 'fixed' });
+    const config = loadConfig({ DATABASE_URL: 'local-demo', LINE_CHANNEL_SECRET: DEMO_SECRET, LINE_CHANNEL_ACCESS_TOKEN: 'demo-only-not-a-real-token', OWNER_LINE_USER_ID: DEMO_OWNER_ID, TEST_LINE_USER_IDS: DEMO_CUSTOMER_ID, RESPONSE_MODE: 'fixed', OWNER_NOTIFY_ENABLED: 'true' });
     config.port = options.port ?? Number(process.env.PORT ?? 3000); config.responseMode = 'ai';
     const knowledge = await readFile('knowledge/salon.md', 'utf8');
     return await startRuntime({ db, config, knowledge, host: '127.0.0.1', ai: { async generate({ text }) {

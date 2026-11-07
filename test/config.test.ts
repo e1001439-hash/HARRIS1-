@@ -12,3 +12,10 @@ test('fixed owner-only startup needs no tester or AI key and still rejects role 
 test('secret validation errors include names only, never secret values', () => {
   assert.throws(() => loadConfig({ ...required, OWNER_LINE_USER_ID: 'private-value' }), (e: unknown) => e instanceof Error && !e.message.includes('private-value'));
 });
+test('owner notification pushes stay off unless OWNER_NOTIFY_ENABLED=true', () => {
+  assert.equal(loadConfig(required).ownerNotifyEnabled, false);
+  assert.equal(loadConfig({ ...required, OWNER_NOTIFY_ENABLED: '' }).ownerNotifyEnabled, false);
+  assert.equal(loadConfig({ ...required, OWNER_NOTIFY_ENABLED: 'false' }).ownerNotifyEnabled, false);
+  assert.equal(loadConfig({ ...required, OWNER_NOTIFY_ENABLED: 'true' }).ownerNotifyEnabled, true);
+  assert.throws(() => loadConfig({ ...required, OWNER_NOTIFY_ENABLED: 'secret-flag-value' }), (e: unknown) => e instanceof Error && e.message.includes('OWNER_NOTIFY_ENABLED') && !e.message.includes('secret-flag-value'));
+});
