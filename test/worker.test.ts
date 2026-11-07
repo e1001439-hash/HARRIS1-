@@ -13,7 +13,7 @@ const event = (id: string, text: string, userId = customer): LineEvent => ({ typ
 async function fixture(generate: () => Promise<AiResult> = async () => base, pushFail = false) {
   const db = await createTestDatabase(); const store = new Store(db);
   const replies: string[] = [], pushes: string[] = [], destinations: string[] = [], issues: Record<string, unknown>[] = [];
-  const config = loadConfig({ DATABASE_URL: 'postgres://localhost/test', LINE_CHANNEL_SECRET: 'secret', LINE_CHANNEL_ACCESS_TOKEN: 'token', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer, RESPONSE_MODE: 'ai', SALON_AI_API_KEY: 'fake', AI_MODEL: 'fake' });
+  const config = loadConfig({ DATABASE_URL: 'postgres://localhost/test', LINE_CHANNEL_SECRET: 'secret', LINE_CHANNEL_ACCESS_TOKEN: 'token', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer, RESPONSE_MODE: 'ai', SALON_AI_API_KEY: 'fake', AI_MODEL: 'fake', OWNER_NOTIFY_ENABLED: 'true' });
   const worker = new Worker({ store, config, onNotificationIssue: issue => issues.push(issue), knowledge: '已確認：可提供剪髮服務。其他資訊待確認。', ai: { generate }, line: { async reply(_token, text) { replies.push(text); }, async push(id, text) { destinations.push(id); if (pushFail) throw new DeliveryError('unknown'); pushes.push(text); } } });
   return { db, store, worker, replies, pushes, destinations, config, issues };
 }

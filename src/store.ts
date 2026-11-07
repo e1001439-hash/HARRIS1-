@@ -260,7 +260,7 @@ export class Store {
     });
   }
 
-  async finishNotification(job: NotificationJob, status: 'sent' | 'failed' | 'unknown'): Promise<void> {
+  async finishNotification(job: NotificationJob, status: 'sent' | 'failed' | 'unknown' | 'superseded'): Promise<void> {
     await this.db.transaction(async tx => {
       const result = await tx.query<{ task_id: string; phase: string }>(`UPDATE notifications SET status = $3, lease_token = NULL, lease_until = NULL,
         next_attempt_at = clock_timestamp() + CASE WHEN attempts = 1 THEN interval '30 seconds' ELSE interval '2 minutes' END

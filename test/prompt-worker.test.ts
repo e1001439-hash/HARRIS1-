@@ -19,7 +19,7 @@ async function until(condition: () => Promise<boolean> | boolean, reason: string
 async function fixture(options: { ai?: (input: AiInput) => Promise<AiResult>; reply?: () => Promise<void>; push?: () => Promise<void> } = {}) {
   const db = await createTestDatabase();
   const replies: string[] = [], notices: string[] = [], trace: string[] = [];
-  const config = loadConfig({ DATABASE_URL: 'test-only', LINE_CHANNEL_SECRET: 'test-secret', LINE_CHANNEL_ACCESS_TOKEN: 'fake-token', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer, RESPONSE_MODE: 'ai', SALON_AI_API_KEY: 'fake-only', AI_MODEL: 'fake-only' }); config.port = 0;
+  const config = loadConfig({ DATABASE_URL: 'test-only', LINE_CHANNEL_SECRET: 'test-secret', LINE_CHANNEL_ACCESS_TOKEN: 'fake-token', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer, RESPONSE_MODE: 'ai', SALON_AI_API_KEY: 'fake-only', AI_MODEL: 'fake-only', OWNER_NOTIFY_ENABLED: 'true' }); config.port = 0;
   const runtime = await startRuntime({ db, config, knowledge: '', host: '127.0.0.1', ai: { generate: options.ai ?? (async () => booking()) }, line: {
     async reply(_token, text) { trace.push('reply'); await options.reply?.(); replies.push(text); },
     async push(to, text) { assert.equal(to, owner); trace.push('push'); await options.push?.(); notices.push(text); },

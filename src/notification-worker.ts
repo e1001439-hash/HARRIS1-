@@ -3,7 +3,7 @@ import type { Config, LineClient } from './types.js';
 import { DeliveryError } from './clients/line.js';
 
 export interface NotificationOptions {
-  store: Store; line: LineClient; config: Pick<Config, 'ownerId'>;
+  store: Store; line: LineClient; config: Pick<Config, 'ownerId' | 'ownerNotifyEnabled'>;
   onNotificationIssue?: (issue: Record<string, unknown>) => void;
 }
 /** A separate loop in the existing process; never waits for AI or customer replies. */
@@ -19,6 +19,12 @@ export class NotificationWorker {
       const notice = await store.claimNotification();
       if (!notice) return false;
       if (!await store.canSendNotification(notice)) return true;
+      if (config.ownerNotifyEnabled !== true) {
+        // Drop 收到/分析 without a LINE push, including rows already queued,
+        // so turning the flag on later does not flush a backlog through the quota.
+        await store.finishNotification(notice, 'superseded');
+        return true;
+      }
       let status: 'sent' | 'failed' | 'unknown' = 'sent';
       try {
         if (notice.ownerId !== config.ownerId) throw new DeliveryError('failed');

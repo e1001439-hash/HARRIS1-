@@ -6,6 +6,7 @@ import { isPairingCommand, isPairingText, safeOwnerPairingText, type PairingServ
 import { isPreviewCommand } from './preview.js';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import type { LineClient } from './types.js';
+import { linePushFailureLog } from './clients/line.js';
 
 const sendSchema = z.object({ to: z.string().regex(/^U[0-9a-f]{32}$/), text: z.string().min(1).max(4500), retryKey: z.string().uuid().optional() });
 function bearerOk(header: unknown, secret?: string): boolean {
@@ -36,7 +37,11 @@ export function createApp({ config, store, pairing, line }: { config: Config; st
     if (!parsed.success) return res.code(400).send({ error: 'invalid body' });
     const retryKey = parsed.data.retryKey ?? randomUUID();
     try { await line.push(parsed.data.to, parsed.data.text, retryKey); }
-    catch { return res.code(502).send({ error: 'LINE push failed', retryKey }); }
+    catch (error) {
+      const failure = linePushFailureLog(error, [config.lineToken, config.lineSecret, config.sendApiSecret, config.relaySecret]);
+      console.error(JSON.stringify({ event: 'line_push_failed', status: failure.status, body: failure.body }));
+      return res.code(502).send({ error: 'LINE push failed', retryKey });
+    }
     return { ok: true, retryKey };
   });
   app.post('/webhook', async (req, res) => {

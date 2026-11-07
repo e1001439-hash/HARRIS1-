@@ -9,7 +9,7 @@ import { startRuntime } from '../src/runtime.js';
 import { createTestDatabase } from './database.js';
 
 const owner = `U${'1'.repeat(32)}`, tester = `U${'2'.repeat(32)}`, stranger = `U${'3'.repeat(32)}`;
-const settings = { DATABASE_URL: 'local-test-only', LINE_CHANNEL_SECRET: 'fake-pairing-secret', LINE_CHANNEL_ACCESS_TOKEN: 'fake-token', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: '', SALON_AI_API_KEY: '', AI_MODEL: '' };
+const settings = { DATABASE_URL: 'local-test-only', LINE_CHANNEL_SECRET: 'fake-pairing-secret', LINE_CHANNEL_ACCESS_TOKEN: 'fake-token', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: '', SALON_AI_API_KEY: '', AI_MODEL: '', OWNER_NOTIFY_ENABLED: 'true' };
 async function until(condition: () => Promise<boolean> | boolean, message: string) {
   const end = Date.now() + 5000;
   while (Date.now() < end) { if (await condition()) return; await new Promise(resolve => setTimeout(resolve, 15)); }

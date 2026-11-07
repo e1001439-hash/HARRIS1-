@@ -25,6 +25,10 @@ const schema = z.object({
   // Bearer secret for POST /send (outbound push requested by the drafting service).
   SEND_API_SECRET: z.preprocess(v => v === '' ? undefined : v, z.string().min(32).optional()),
   OWNER_LINE_NOTIFY: z.enum(['true', 'false']).default('true'),
+  // Receipt (收到) and analysis (分析) pushes to the owner account. Default off
+  // so a customer message does not spend two LINE push-quota units. Unset and
+  // empty stay off. POST /send, owner command replies, and the Grok webhook do not use this flag.
+  OWNER_NOTIFY_ENABLED: z.preprocess(v => v === undefined || v === '' ? 'false' : v, z.enum(['true', 'false'])),
   POLL_IDLE_MS: z.coerce.number().int().min(100).max(60000).default(2000),
 });
 export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
@@ -43,5 +47,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     testUserIds: testIds, aiKey: d.SALON_AI_API_KEY, aiModel: d.AI_MODEL, knowledgePath: d.KNOWLEDGE_PATH,
     bookingUrl: d.BOOKING_URL, publicSiteUrl: d.PUBLIC_SITE_URL,
     customerReplyMode: d.CUSTOMER_REPLY_MODE, relayUrl: d.RELAY_URL, relaySecretHeader: d.RELAY_SECRET_HEADER, relaySecret: d.RELAY_SECRET,
-    sendApiSecret: d.SEND_API_SECRET, ownerLineNotify: d.OWNER_LINE_NOTIFY === 'true', pollIdleMs: d.POLL_IDLE_MS };
+    sendApiSecret: d.SEND_API_SECRET, ownerLineNotify: d.OWNER_LINE_NOTIFY === 'true',
+    ownerNotifyEnabled: d.OWNER_NOTIFY_ENABLED === 'true', pollIdleMs: d.POLL_IDLE_MS };
 }

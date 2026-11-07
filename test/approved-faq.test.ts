@@ -9,7 +9,7 @@ import { createTestDatabase } from './database.js';
 import type { AiResult, LineEvent } from '../src/types.js';
 
 const owner = `U${'1'.repeat(32)}`, customer = `U${'2'.repeat(32)}`;
-const env = { DATABASE_URL: 'postgres://localhost/test', LINE_CHANNEL_SECRET: 'fake', LINE_CHANNEL_ACCESS_TOKEN: 'fake', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer };
+const env = { DATABASE_URL: 'postgres://localhost/test', LINE_CHANNEL_SECRET: 'fake', LINE_CHANNEL_ACCESS_TOKEN: 'fake', OWNER_LINE_USER_ID: owner, TEST_LINE_USER_IDS: customer, OWNER_NOTIFY_ENABLED: 'true' };
 const model: AiResult = { reply: '剪髮560元，已預約成功，圖片已傳送。', summary: 'model text', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
 const facts = await loadFacts('knowledge/facts.json');
 function respond(text: string, patch: Partial<AiResult> = {}) {
