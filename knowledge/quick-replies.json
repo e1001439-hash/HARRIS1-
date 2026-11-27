@@ -1,5 +1,5 @@
 {
-  "_note": "hybrid 模式固定回覆。價格取自 https://harrishair.tw/api/site-config（2026-11-27 16:40 台北時間）；改價後先跑 npm run quick-replies:check。skipExact = LINE 後台內建自動回應／圖文選單關鍵字：完全相同的訊息不回、不轉交，避免重複回覆。",
+  "_note": "hybrid 模式固定回覆。價格取自 https://harrishair.tw/api/site-config（2026-11-27 16:40 台北時間）；改價後先跑 npm run quick-replies:check。補染最晚 17:00（Harris 11/27）。價格題預設不固定回覆（QUICK_REPLY_PRICES=false）。skipExact = LINE 後台內建自動回應／圖文選單關鍵字：完全相同的訊息不回、不轉交，避免重複回覆。",
   "skipExact": ["休假", "價目表", "項目表"],
   "entries": [
     { "id": "address", "price": false, "match": ["地址", "在哪", "怎麼去", "怎麼走", "位置在", "哪間店", "哪一間", "地圖", "google ?map"],
@@ -11,7 +11,7 @@
     { "id": "booking", "price": false, "match": ["怎麼預約", "如何預約", "預約連結", "預約網址", "預約網站", "預約方式", "線上預約", "哪裡預約", "要怎麼約", "怎麼約"],
       "text": "直接上 https://harrishair.tw/ 選項目跟時間就可以了🙌\n有想約哪天也可以直接跟我說，我幫你看～" },
     { "id": "root-dye-time", "price": false, "match": ["補染.*(多久|幾小時|幾個小時|多少時間|最晚|幾點)"],
-      "text": "補染大概 1.5～2 小時🙌\n補染的話，最晚只能約到 16點呦🙏" },
+      "text": "補染大概 1.5～2 小時🙌\n補染的話，最晚只能約到 17點呦🙏" },
     { "id": "perm-time", "price": false, "match": ["燙.*(多久|幾小時|幾個小時|多少時間|要很久)"],
       "text": "燙髮大概 4 小時左右喔🙌" },
     { "id": "price-root-dye", "price": true, "match": ["補染.*(多少|價格|價錢|費用|怎麼算|收費)"],

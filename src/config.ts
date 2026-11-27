@@ -20,7 +20,7 @@ const schema = z.object({
   // (Grok Bot routine webhook) and never auto-replied. Unset = legacy behavior.
   CUSTOMER_REPLY_MODE: z.enum(['auto', 'relay', 'hybrid']).default('auto'),
   // hybrid: fixed reply-token answers for matched simple questions, everything else relayed.
-  QUICK_REPLY_PRICES: z.enum(['true', 'false']).default('true'),
+  QUICK_REPLY_PRICES: z.enum(['true', 'false']).default('false'), // Harris 11/27: 問價一律轉交
   RELAY_SKIP_STICKERS: z.enum(['true', 'false']).default('true'),
   RELAY_URL: z.preprocess(v => v === '' ? undefined : v, httpsUrl.optional()),
   RELAY_SECRET_HEADER: z.string().regex(/^[A-Za-z0-9-]{1,64}$/).default('x-relay-secret'),

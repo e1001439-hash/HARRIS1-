@@ -16,6 +16,8 @@ const COMBO = /加|\+|＋|跟|和|一起|順便|還有|再/;
 /** More than one service family (cut / perm / dye / treatment) in one message needs a person. */
 const multiService = (text: string) => [/剪/, /燙/, /染/, /護髮/].filter(re => re.test(text)).length > 1;
 export const QUICK_MAX_LENGTH = 40;
+/** Any price wording. With prices off (default) such messages are always relayed, whatever else they ask. */
+export const PRICE = /多少錢|價格|價位|價錢|費用|怎麼算|收費|報價|價目|幾塊|\$|\d+\s*元|多少(?!時間|小時|分鐘|個小時)/;
 
 export async function loadQuickReplies(path: string): Promise<QuickReplies> {
   const data = schema.parse(JSON.parse(await readFile(path, 'utf8')));
@@ -29,6 +31,7 @@ export function decideQuickReply(rules: QuickReplies | undefined, event: LineEve
   const text = (event.message.text ?? '').trim();
   if (rules.skipExact.includes(text)) return { kind: 'skip', reason: 'menu_keyword' };
   if (!text || text.length > QUICK_MAX_LENGTH || JUDGEMENT.test(text) || multiService(text)) return null;
+  if (!options.prices && PRICE.test(text)) return null;
   for (const entry of rules.entries) {
     if (entry.price && (!options.prices || COMBO.test(text))) continue;
     if (entry.match.some(pattern => new RegExp(pattern, 'i').test(text))) return { kind: 'reply', id: entry.id, text: entry.text };

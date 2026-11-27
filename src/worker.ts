@@ -97,7 +97,7 @@ export class Worker {
   private async hybrid(job: EventJob, text: string): Promise<void> {
     const { store, config, line } = this.options;
     const quiet = { reply: '', delivery: 'not_sent' as const, needsHuman: false, preserveHandoff: true }; // task closes as done
-    const decision = decideQuickReply(this.options.quickReplies, job.event, { prices: config.quickReplyPrices !== false, skipStickers: config.relaySkipStickers !== false });
+    const decision = decideQuickReply(this.options.quickReplies, job.event, { prices: config.quickReplyPrices === true, skipStickers: config.relaySkipStickers !== false });
     if (decision?.kind === 'skip') {
       await store.finishEvent(job, { ...humanFallback(text, decision.reason === 'sticker' ? '貼圖，不轉交' : '選單關鍵字，LINE 內建自動回應已處理'), ...quiet }, config.ownerId);
       return;

@@ -16,10 +16,11 @@ export async function forwardToRelay(config: Config, line: LineClient, job: Even
     userId: job.userId,              // push target
     displayName: profile?.displayName ?? null,
     receivedAt: job.receivedAt.toISOString(),
-    // Image/video/audio/file: fetch bytes with GET https://api-data.line.me/v2/bot/message/{message.id}/content
-    // (or GET /media/:eventId on this service) – LINE keeps content only for a limited time.
+    // No media fetching: image/video are flagged hasPhoto for Harris to view in LINE himself.
     event: job.event,
     mode: config.customerReplyMode,
+    // Harris 11/27: photos are his to look at; the relay target must not reply, only summarise.
+    ...(job.event.message?.type === 'image' || job.event.message?.type === 'video' ? { hasPhoto: true, note: '有照片，留給 Harris' } : {}),
     ...extra,
   };
   const response = await fetcher(config.relayUrl!, {

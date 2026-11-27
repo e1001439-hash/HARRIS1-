@@ -22,4 +22,10 @@ for (const [key, needle] of [['openTime', 'hours'], ['closeTime', 'hours']] as c
   const value = site.settings[key]!; const ok = rules.entries.find(e => e.id === needle)!.text.includes(value);
   console.log(`${ok ? '✔' : '✖'} ${key} ${value}`); if (!ok) bad++;
 }
+// 補染最晚時間：Harris 11/27 定為 17:00，固定回覆須與網站「髮根補染」latestStartTime 一致。
+const rootDye = site.services.find(s => s.name === '髮根補染') as unknown as { latestStartTime?: string } | undefined;
+const rootText = rules.entries.find(e => e.id === 'root-dye-time')!.text;
+const hour = String(Number((rootDye?.latestStartTime ?? '').split(':')[0]));
+const rootOk = !!rootDye?.latestStartTime && rootText.includes(`${hour}點`) && hour === '17';
+console.log(`${rootOk ? '✔' : '✖'} 補染最晚 網站 ${rootDye?.latestStartTime ?? '?'}／固定回覆 ${rootText.match(/\d+點/)?.[0] ?? '?'}（應為 17）`); if (!rootOk) bad++;
 process.exitCode = bad ? 1 : 0;
