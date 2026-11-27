@@ -8,7 +8,7 @@ export interface Config {
   port: number; databaseUrl: string; mode: 'test' | 'live'; responseMode: 'fixed' | 'ai';
   lineSecret: string; lineToken: string; ownerId: string; testUserIds: string[];
   aiKey?: string; aiModel?: string; knowledgePath: string; bookingUrl: string; publicSiteUrl: string;
-  customerReplyMode?: 'auto' | 'relay'; relayUrl?: string; relaySecretHeader?: string; relaySecret?: string;
+  customerReplyMode?: 'auto' | 'relay' | 'hybrid'; quickReplyPrices?: boolean; relaySkipStickers?: boolean; relayUrl?: string; relaySecretHeader?: string; relaySecret?: string;
   sendApiSecret?: string; ownerLineNotify?: boolean; ownerNotifyEnabled: boolean; pollIdleMs?: number;
 }
 export interface AiResult {

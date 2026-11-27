@@ -18,7 +18,10 @@ const schema = z.object({
   PUBLIC_SITE_URL: httpsUrl.default('https://harrishair.tw/'),
   // Relay mode: customer events are forwarded to an external drafting service
   // (Grok Bot routine webhook) and never auto-replied. Unset = legacy behavior.
-  CUSTOMER_REPLY_MODE: z.enum(['auto', 'relay']).default('auto'),
+  CUSTOMER_REPLY_MODE: z.enum(['auto', 'relay', 'hybrid']).default('auto'),
+  // hybrid: fixed reply-token answers for matched simple questions, everything else relayed.
+  QUICK_REPLY_PRICES: z.enum(['true', 'false']).default('true'),
+  RELAY_SKIP_STICKERS: z.enum(['true', 'false']).default('true'),
   RELAY_URL: z.preprocess(v => v === '' ? undefined : v, httpsUrl.optional()),
   RELAY_SECRET_HEADER: z.string().regex(/^[A-Za-z0-9-]{1,64}$/).default('x-relay-secret'),
   RELAY_SECRET: z.preprocess(v => v === '' ? undefined : v, z.string().min(16).optional()),
@@ -40,13 +43,16 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const d = result.data;
   const testIds = d.TEST_LINE_USER_IDS.split(',').map(x => x.trim()).filter(Boolean);
   if (testIds.some(id => !userId.safeParse(id).success || id === d.OWNER_LINE_USER_ID)) throw new SafeDiagnosticError('CONFIG_INVALID', ['TEST_LINE_USER_IDS']);
-  if (d.CUSTOMER_REPLY_MODE === 'relay' && (!d.RELAY_URL || !d.RELAY_SECRET)) throw new SafeDiagnosticError('CONFIG_MISSING', [!d.RELAY_URL ? 'RELAY_URL' : undefined, !d.RELAY_SECRET ? 'RELAY_SECRET' : undefined].filter((field): field is ConfigField => field !== undefined));
+  if (d.CUSTOMER_REPLY_MODE !== 'auto' && (!d.RELAY_URL || !d.RELAY_SECRET)) throw new SafeDiagnosticError('CONFIG_MISSING', [!d.RELAY_URL ? 'RELAY_URL' : undefined, !d.RELAY_SECRET ? 'RELAY_SECRET' : undefined].filter((field): field is ConfigField => field !== undefined));
   if (d.RESPONSE_MODE === 'ai' && (!d.SALON_AI_API_KEY || !d.AI_MODEL)) throw new SafeDiagnosticError('CONFIG_MISSING', [!d.SALON_AI_API_KEY ? 'SALON_AI_API_KEY' : undefined, !d.AI_MODEL ? 'AI_MODEL' : undefined].filter((field): field is ConfigField => field !== undefined));
   return { port: d.PORT, databaseUrl: d.DATABASE_URL, mode: d.BOT_MODE, responseMode: d.RESPONSE_MODE,
     lineSecret: d.LINE_CHANNEL_SECRET, lineToken: d.LINE_CHANNEL_ACCESS_TOKEN, ownerId: d.OWNER_LINE_USER_ID,
     testUserIds: testIds, aiKey: d.SALON_AI_API_KEY, aiModel: d.AI_MODEL, knowledgePath: d.KNOWLEDGE_PATH,
     bookingUrl: d.BOOKING_URL, publicSiteUrl: d.PUBLIC_SITE_URL,
     customerReplyMode: d.CUSTOMER_REPLY_MODE, relayUrl: d.RELAY_URL, relaySecretHeader: d.RELAY_SECRET_HEADER, relaySecret: d.RELAY_SECRET,
-    sendApiSecret: d.SEND_API_SECRET, ownerLineNotify: d.OWNER_LINE_NOTIFY === 'true',
-    ownerNotifyEnabled: d.OWNER_NOTIFY_ENABLED === 'true', pollIdleMs: d.POLL_IDLE_MS };
+    sendApiSecret: d.SEND_API_SECRET,
+    // hybrid never pushes owner notices (11/5–11/7 quota incident).
+    ownerLineNotify: d.CUSTOMER_REPLY_MODE === 'hybrid' ? false : d.OWNER_LINE_NOTIFY === 'true',
+    ownerNotifyEnabled: d.CUSTOMER_REPLY_MODE === 'hybrid' ? false : d.OWNER_NOTIFY_ENABLED === 'true',
+    quickReplyPrices: d.QUICK_REPLY_PRICES === 'true', relaySkipStickers: d.RELAY_SKIP_STICKERS === 'true', pollIdleMs: d.POLL_IDLE_MS };
 }

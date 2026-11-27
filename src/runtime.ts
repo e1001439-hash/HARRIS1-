@@ -3,11 +3,12 @@ import { Store } from './store.js';
 import { Worker } from './worker.js';
 import type { AiClient, Config, Database, LineClient } from './types.js';
 import type { SalonFacts } from './knowledge.js';
+import type { QuickReplies } from './quick-replies.js';
 import { NotificationWorker } from './notification-worker.js';
 import { PairingStore } from './pairing-store.js';
 import { PairingService } from './pairing.js';
 
-export async function startRuntime(options: { db: Database; config: Config; ai: AiClient; line: LineClient; knowledge: string; facts?: SalonFacts; host?: string }) {
+export async function startRuntime(options: { db: Database; config: Config; ai: AiClient; line: LineClient; knowledge: string; facts?: SalonFacts; quickReplies?: QuickReplies; host?: string }) {
   const { db, config } = options;
   const store = new Store(db); await store.ping(); await store.cleanup();
   const pairing = new PairingService(new PairingStore(db), config); await pairing.cleanup();

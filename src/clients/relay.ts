@@ -1,7 +1,13 @@
 import type { Config, EventJob, LineClient } from '../types.js';
 
 /** Forwards one stored customer event to the external drafting webhook. */
-export async function forwardToRelay(config: Config, line: LineClient, job: EventJob, fetcher: typeof fetch = fetch): Promise<void> {
+export interface RelayExtra {
+  /** hybrid: a fixed reply was attempted but not confirmed delivered. */
+  quickReplyAttempt?: { id: string; text: string; delivery: string };
+  /** Last stored turns for this customer (customer texts + bot fixed replies; /send pushes are not stored). */
+  recent?: { role: 'user' | 'assistant'; content: string }[];
+}
+export async function forwardToRelay(config: Config, line: LineClient, job: EventJob, fetcher: typeof fetch = fetch, extra: RelayExtra = {}): Promise<void> {
   const profile = await line.profile?.(job.userId) ?? null;
   const body = {
     source: 'harris-line-assistant',
@@ -13,6 +19,8 @@ export async function forwardToRelay(config: Config, line: LineClient, job: Even
     // Image/video/audio/file: fetch bytes with GET https://api-data.line.me/v2/bot/message/{message.id}/content
     // (or GET /media/:eventId on this service) – LINE keeps content only for a limited time.
     event: job.event,
+    mode: config.customerReplyMode,
+    ...extra,
   };
   const response = await fetcher(config.relayUrl!, {
     method: 'POST',

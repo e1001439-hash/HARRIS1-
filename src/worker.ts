@@ -8,9 +8,10 @@ import { handleOwnerPreview, isPreviewCommand } from './preview.js';
 import type { SalonFacts } from './knowledge.js';
 import { NotificationWorker } from './notification-worker.js';
 import { isPairingCommand, type PairingService } from './pairing.js';
-import { forwardToRelay } from './clients/relay.js';
+import { forwardToRelay, type RelayExtra } from './clients/relay.js';
+import { decideQuickReply, type QuickReplies } from './quick-replies.js';
 
-interface Options { store: Store; config: Config; line: LineClient; ai: AiClient; knowledge: string; facts?: SalonFacts; lane?: 'owner' | 'customer'; onNotificationIssue?: (issue: Record<string, unknown>) => void; pairing?: PairingService }
+interface Options { store: Store; config: Config; line: LineClient; ai: AiClient; knowledge: string; facts?: SalonFacts; lane?: 'owner' | 'customer'; quickReplies?: QuickReplies; onNotificationIssue?: (issue: Record<string, unknown>) => void; pairing?: PairingService }
 async function within<T>(promise: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('deadline exceeded')), ms); })]); }
@@ -31,7 +32,7 @@ export class Worker {
       if (job) await this.process(job);
       // Runtime has a separate notification loop. The all-purpose instance is
       // also usable by local tools/tests without starting a background service.
-      const notified = !lane && await this.notificationWorker.tick();
+      const notified = !lane && config.ownerLineNotify !== false && await this.notificationWorker.tick();
       return !!(job || notified);
     } finally { this.busy = false; }
   }
@@ -59,6 +60,7 @@ export class Worker {
       await store.finishEvent(job, { ...humanFallback(text, '已轉交 Grok Bot 草擬回覆，待 Harris 核准'), reply: '', delivery: 'not_sent', preserveHandoff: true }, config.ownerId);
       return;
     }
+    if (!isOwner && config.customerReplyMode === 'hybrid') { await this.hybrid(job, text); return; }
     if (isOwner) result = { reply: preview ? await handleOwnerPreview(this.options, job) : await handleOwnerCommand(text, store, this.options.pairing, job), summary: '店主管理操作', service: null, requestedTime: null, bookingStatus: 'none', needsHuman: false, nextAction: '' };
     else if (!await store.isLatestEvent(job)) {
       outcome = { ...humanFallback(text, '本則為較早訊息，已由後續需求接續'), reply: '', needsHuman: false, delivery: 'not_sent', preserveHandoff: true };
@@ -90,5 +92,31 @@ export class Worker {
       }
     } else if (!isOwner) { outcome.needsHuman = true; outcome.nextAction = '回覆憑證已過期或不存在，請本人回覆'; }
     await store.finishEvent(job, outcome, config.ownerId);
+  }
+  /** Simple questions: one free reply-token answer, no relay. Menu keywords / stickers: nothing. Rest: relay. */
+  private async hybrid(job: EventJob, text: string): Promise<void> {
+    const { store, config, line } = this.options;
+    const quiet = { reply: '', delivery: 'not_sent' as const, needsHuman: false, preserveHandoff: true }; // task closes as done
+    const decision = decideQuickReply(this.options.quickReplies, job.event, { prices: config.quickReplyPrices !== false, skipStickers: config.relaySkipStickers !== false });
+    if (decision?.kind === 'skip') {
+      await store.finishEvent(job, { ...humanFallback(text, decision.reason === 'sticker' ? '貼圖，不轉交' : '選單關鍵字，LINE 內建自動回應已處理'), ...quiet }, config.ownerId);
+      return;
+    }
+    const extra: RelayExtra = { recent: await store.history(job.userId) };
+    if (decision?.kind === 'reply') {
+      const age = Date.now() - job.event.timestamp;
+      if (job.event.replyToken && age < 50000 && age > -60000 && await store.isLatestEvent(job) && await store.markSending(job, true)) {
+        let delivery: 'sent' | 'failed' | 'unknown' = 'sent';
+        try { await within(line.reply(job.event.replyToken, decision.text), 9000); }
+        catch (error) { delivery = error instanceof DeliveryError ? error.delivery : 'unknown'; }
+        if (delivery === 'sent') {
+          await store.finishEvent(job, { ...humanFallback(text, `固定回覆 ${decision.id}`), ...quiet, reply: decision.text, delivery: 'sent', nextAction: '已固定回覆，無需處理' }, config.ownerId);
+          return;
+        }
+        extra.quickReplyAttempt = { id: decision.id, text: decision.text, delivery };
+      }
+    }
+    await forwardToRelay(config, line, job, fetch, extra);
+    await store.finishEvent(job, { ...humanFallback(text, '已轉交預約專員處理'), reply: '', delivery: 'not_sent', preserveHandoff: true }, config.ownerId);
   }
 }

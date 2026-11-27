@@ -13,7 +13,8 @@
     "start": "node --use-env-proxy dist/main.js",
     "migrate": "node dist/migrate.js",
     "demo": "tsx src/demo.ts",
-    "demo:send": "tsx src/demo-send.ts"
+    "demo:send": "tsx src/demo-send.ts",
+    "quick-replies:check": "tsx scripts/check-quick-replies.ts"
   },
   "dependencies": {
     "fastify": "5.12.7",

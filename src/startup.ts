@@ -5,6 +5,7 @@ import { PgDatabase, migrate } from './db.js';
 import { HttpLineClient } from './clients/line.js';
 import { OpenAiClient } from './clients/ai.js';
 import { loadFacts, type SalonFacts } from './knowledge.js';
+import { loadQuickReplies, type QuickReplies } from './quick-replies.js';
 import { startRuntime } from './runtime.js';
 import { startupDiagnostic, type StartupDiagnostic, type StartupStage } from './diagnostics.js';
 import type { AiClient, Config, Database, LineClient } from './types.js';
@@ -15,6 +16,7 @@ export interface StartupDependencies {
   config(): Config;
   readKnowledge(path: string): Promise<string>;
   readFacts(path: string): Promise<SalonFacts>;
+  readQuickReplies?(path: string): Promise<QuickReplies>;
   database(url: string): Database;
   migrate(db: Database): Promise<void>;
   clients(config: Config): { ai: AiClient; line: LineClient };
@@ -22,7 +24,7 @@ export interface StartupDependencies {
 }
 const defaults: StartupDependencies = {
   async loadEnvironment() { await import('./env.js'); }, config: loadConfig,
-  readKnowledge: path => readFile(path, 'utf8'), readFacts: loadFacts,
+  readKnowledge: path => readFile(path, 'utf8'), readFacts: loadFacts, readQuickReplies: loadQuickReplies,
   database: url => new PgDatabase(url), migrate,
   clients: config => ({
     ai: config.responseMode === 'ai' ? new OpenAiClient(config.aiKey!, config.aiModel!) : { async generate(): Promise<never> { throw new Error('AI mode disabled'); } },
@@ -42,10 +44,11 @@ export async function initializeService(dependencies: Partial<StartupDependencie
     stage = 'configuration'; const config = deps.config();
     stage = 'knowledge'; const knowledge = await deps.readKnowledge(config.knowledgePath);
     stage = 'facts'; const facts = await deps.readFacts(join(dirname(config.knowledgePath), 'facts.json'));
+    const quickReplies = config.customerReplyMode === 'hybrid' ? await (deps.readQuickReplies ?? loadQuickReplies)(join(dirname(config.knowledgePath), 'quick-replies.json')) : undefined;
     stage = 'database_configuration'; db = deps.database(config.databaseUrl);
     stage = 'database_migration'; await deps.migrate(db);
     stage = 'clients'; const clients = deps.clients(config);
-    stage = 'runtime'; const runtime = await deps.runtime({ db, config, ...clients, knowledge, facts });
+    stage = 'runtime'; const runtime = await deps.runtime({ db, config, ...clients, knowledge, facts, quickReplies });
     return { ok: true, config, runtime };
   } catch (error) {
     const diagnostic = startupDiagnostic(stage, error);
