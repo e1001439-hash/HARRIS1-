@@ -34,7 +34,8 @@ test('judgement, dates, slots, combos, bangs and long messages are relayed (null
     '壽星燙髮有折扣嗎', '我頭髮很受損可以燙嗎', '你好', '謝謝', '我想預約', '預約', '我之前燙的捲度掉很快想問一下要怎麼處理比較好呢因為快拍畢業照了', '這個髮型適合我嗎']) assert.equal(decide(text), null, text);
 });
 test('menu keywords and lone stickers are skipped; price answers can be switched off', () => {
-  for (const text of ['休假', '價目表', ' 項目表 ']) assert.deepEqual(decide(text), { kind: 'skip', reason: 'menu_keyword' });
+  for (const text of ['休假', '價目表', ' 項目表 ', '我要預約']) assert.deepEqual(decide(text), { kind: 'skip', reason: 'menu_keyword' });
+  for (const text of ['我想預約', '我要預約嗎']) assert.equal(decide(text), null, text);
   assert.deepEqual(decideQuickReply(rules, { ...msg('s', ''), message: { type: 'sticker' } }, { prices: true, skipStickers: true }), { kind: 'skip', reason: 'sticker' });
   assert.equal(decideQuickReply(rules, { ...msg('s', ''), message: { type: 'sticker' } }, { prices: true, skipStickers: false }), null);
   assert.equal(decide('剪髮多少'), null);
